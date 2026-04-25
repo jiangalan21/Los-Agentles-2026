@@ -16,6 +16,16 @@ from dotenv import load_dotenv
 import os
 from typing import Optional
 
+from shared.models import (
+    ParsedUserInput,
+    UserProfile,
+    ContextAgentRequest,
+    ContextAgentResponse,
+    EnrichedContext,
+    ActionAgentRequest,
+    ActionAgentResponse,
+)
+
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.venv', '.env'))
 DAYGER_SEED = os.getenv("DAYGER_SEED_VALUE")
 ASI_ONE_API_KEY = os.getenv("ASI_ONE_API_KEY")
@@ -47,82 +57,9 @@ ACTION_AGENT_ADDRESSES = {
 
 
 # ---------------------------------------------------------------------------
-# Shared data models
-# ---------------------------------------------------------------------------
-
-class ParsedUserInput(Model):
-    """Structured extraction of the user's raw morning prompt."""
-    raw_prompt: str
-    mood: Optional[str] = None            # e.g. "stressed", "energetic", "calm"
-    stress_level: Optional[str] = None    # "low" | "medium" | "high"
-    schedule_notes: Optional[str] = None  # e.g. "midterm at 2pm"
-    time_available_minutes: Optional[int] = None
-    weather_feel: Optional[str] = None    # user's perceived weather ("cold", "rainy", …)
-    location_hint: Optional[str] = None
-    dietary_notes: Optional[str] = None
-    music_vibe: Optional[str] = None
-    requested_cards: Optional[list] = None  # if user explicitly asks for certain cards
-
-
-class UserProfile(Model):
-    """User preferences and history fetched from the database."""
-    user_id: str
-    # TODO: populate from DB — these are placeholders for fields we expect
-    preferred_cuisine: Optional[str] = None
-    dietary_restrictions: Optional[list] = None
-    clothing_style: Optional[str] = None
-    music_genres: Optional[list] = None
-    home_location: Optional[str] = None
-
-
-class ContextAgentRequest(Model):
-    """Sent to context agents (e.g. weather) during the context stage."""
-    session_id: str
-    parsed_input: ParsedUserInput
-    user_profile: UserProfile
-
-
-class ContextAgentResponse(Model):
-    """Response from a context agent — becomes part of EnrichedContext."""
-    session_id: str
-    agent_name: str         # must match a key in CONTEXT_AGENT_ADDRESSES
-    context_data: dict      # agent-specific payload (e.g. {"temp": 42, "condition": "cloudy"})
-    error: Optional[str] = None
-
-
-class EnrichedContext(Model):
-    """Full context assembled at the end of the context stage.
-    This is the single object every action agent receives.
-    """
-    session_id: str
-    parsed_input: ParsedUserInput
-    user_profile: UserProfile
-    # Outputs from context agents — keyed by agent name
-    weather: Optional[dict] = None        # from weather context agent
-    # TODO: add fields for each new context agent (calendar, deals, news, …)
-
-
-class ActionAgentRequest(Model):
-    """Sent to action agents during the action stage."""
-    session_id: str
-    enriched_context: EnrichedContext
-
-
-class ActionAgentResponse(Model):
-    """Response from an action agent — rendered as a card on the frontend."""
-    session_id: str
-    agent_name: str         # must match a key in ACTION_AGENT_ADDRESSES
-    card_data: dict         # frontend-renderable payload for this card type
-    error: Optional[str] = None
-
-
-class Message(Model):
-    message: str
-
-
-# ---------------------------------------------------------------------------
 # Orchestrator agent
 # ---------------------------------------------------------------------------
+
 dayger = Agent(
     name='dayger',
     seed=DAYGER_SEED,
@@ -131,13 +68,16 @@ dayger = Agent(
     publish_agent_details=True,
 )
 
+
 protocol = Protocol(spec=chat_protocol_spec)
+orchestrator_proto = Protocol(name="orchestrator-context", version="0.1.0")
 
 
 # ---------------------------------------------------------------------------
 # In-memory session store
 # TODO: replace with a persistent store for production
 # ---------------------------------------------------------------------------
+
 _sessions: dict[str, dict] = {}
 
 
@@ -177,6 +117,7 @@ Extract a JSON object from the user's message. Only include fields you can confi
 
 Return ONLY valid JSON, no extra text.
 """
+
 
 def parse_user_input(raw_prompt: str) -> ParsedUserInput:
     """LLM call to convert a free-form morning prompt into ParsedUserInput."""
@@ -338,7 +279,16 @@ async def handle_message(ctx: Context, sender: str, msg: ChatMessage):
     await run_context_stage(ctx, session_id)
 
 
-@protocol.on_message(ContextAgentResponse)
+@protocol.on_message(ChatAcknowledgement)
+async def handle_ack(_ctx: Context, _sender: str, _msg: ChatAcknowledgement):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator handlers
+# ---------------------------------------------------------------------------
+
+@orchestrator_proto.on_message(ContextAgentResponse)
 async def handle_context_response(ctx: Context, _sender: str, msg: ContextAgentResponse):
     """Receive output from a context agent; kick off the action stage once all context is in."""
     session = _sessions.get(msg.session_id)
@@ -355,7 +305,7 @@ async def handle_context_response(ctx: Context, _sender: str, msg: ContextAgentR
         await run_action_stage(ctx, msg.session_id)
 
 
-@protocol.on_message(ActionAgentResponse)
+@orchestrator_proto.on_message(ActionAgentResponse)
 async def handle_action_response(ctx: Context, _sender: str, msg: ActionAgentResponse):
     """Receive a card from an action agent; send final reply when all cards are in."""
     session = _sessions.get(msg.session_id)
@@ -372,12 +322,10 @@ async def handle_action_response(ctx: Context, _sender: str, msg: ActionAgentRes
         await _send_final_reply(ctx, msg.session_id, reply)
 
 
-@protocol.on_message(ChatAcknowledgement)
-async def handle_ack(_ctx: Context, _sender: str, _msg: ChatAcknowledgement):
-    pass
-
-
 dayger.include(protocol, publish_manifest=True)
+dayger.include(orchestrator_proto, publish_manifest=True)
+
+
 
 if __name__ == '__main__':
     dayger.run()

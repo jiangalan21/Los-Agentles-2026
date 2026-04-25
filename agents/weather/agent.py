@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
@@ -16,6 +17,10 @@ from uagents_core.contrib.protocols.chat import (
     TextContent,
     chat_protocol_spec,
 )
+
+# Allow importing from agents/shared/
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from shared.models import ContextAgentRequest, ContextAgentResponse
 
 load_dotenv()
 
@@ -37,13 +42,14 @@ PERIODS: Dict[str, Tuple[int, int]] = {
 
 DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
-_endpoint = os.getenv("AGENT_ENDPOINT", "http://localhost:8001/submit")
+_endpoint = os.getenv("AGENT_ENDPOINT") or "http://localhost:8001/submit"
 
 agent = Agent(
     name="weather-agent",
     seed=os.getenv("AGENT_SEED", "weather-agent-seed"),
     port=8001,
     endpoint=[_endpoint],
+    mailbox=True,
 )
 
 proto = Protocol(spec=chat_protocol_spec)
@@ -483,7 +489,95 @@ async def handle_ack(ctx: Context, sender: str, _msg: ChatAcknowledgement) -> No
     ctx.logger.info(f"Ack from {sender}")
 
 
-agent.include(proto)
+# ── Orchestrator protocol ────────────────────────────────────────────────────
+# Handles ContextAgentRequest from the orchestrator and replies with a
+# ContextAgentResponse containing structured weather data.
+
+orchestrator_proto = Protocol(name="orchestrator-weather", version="0.1.0")
+
+
+def _resolve_location(msg: ContextAgentRequest) -> Optional[str]:
+    """Pick the best available location string from the request."""
+    return (
+        msg.parsed_input.location_hint
+        or msg.user_profile.home_location
+        or None
+    )
+
+
+async def _fetch_weather_for_location(location_str: str) -> Optional[dict]:
+    """Geocode the location string and return structured current-weather data."""
+    geo = await asyncio.to_thread(geocode, location_str)
+    if not geo:
+        return None
+    current = await asyncio.to_thread(fetch_current_weather, geo["lat"], geo["lon"])
+    if not current:
+        return None
+
+    location_name = format_location_name(geo)
+    today = date.today()
+    forecast_result = await asyncio.to_thread(fetch_forecast, geo["lat"], geo["lon"])
+
+    narrative = ""
+    if forecast_result:
+        items, tz_offset = forecast_result
+        groups = group_forecast_by_period(items, today, tz_offset)
+        summaries = {p: summarize_period(v) for p, v in groups.items()}
+        narrative = generate_narrative(location_name, today, summaries, current)
+
+    return {
+        "location": location_name,
+        "condition": current["condition"],
+        "description": current["description"],
+        "temperature_f": current["temperature_f"],
+        "temperature_c": current["temperature_c"],
+        "feels_like_f": current["feels_like_f"],
+        "humidity": current["humidity"],
+        "wind_speed": current["wind_speed"],
+        "narrative": narrative,
+    }
+
+
+@orchestrator_proto.on_message(ContextAgentRequest)
+async def handle_context_request(ctx: Context, sender: str, msg: ContextAgentRequest) -> None:
+    ctx.logger.info(f"[orchestrator] ContextAgentRequest received for session {msg.session_id}")
+
+    location_str = _resolve_location(msg)
+    weather_data = None
+    error = None
+
+    if location_str:
+        weather_data = await _fetch_weather_for_location(location_str)
+        if not weather_data:
+            error = f"Could not fetch weather for location: {location_str!r}"
+    else:
+        error = "No location provided in parsed_input or user_profile"
+
+    if weather_data is None:
+        ctx.logger.warning(f"[orchestrator] {error} — using fallback")
+        weather_data = {
+            "location": "unknown",
+            "condition": "Clear",
+            "description": "mild conditions",
+            "temperature_f": 68,
+            "temperature_c": 20,
+            "feels_like_f": 68,
+            "humidity": 50,
+            "wind_speed": 5,
+            "narrative": FALLBACK_MESSAGE,
+        }
+
+    await ctx.send(sender, ContextAgentResponse(
+        session_id=msg.session_id,
+        agent_name="weather",
+        context_data=weather_data,
+        error=error,
+    ))
+    ctx.logger.info(f"[orchestrator] ContextAgentResponse sent for session {msg.session_id}")
+
+
+agent.include(proto, publish_manifest=True)
+agent.include(orchestrator_proto, publish_manifest=True)
 
 
 @agent.on_event("startup")

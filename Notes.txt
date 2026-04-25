@@ -26,6 +26,9 @@ Chat protocol
 
 Tasks
 - Implement skeleton structure of orchestrator
-- Set up context with vectorDB/RAG?
-  - Generate vector embeddings after each agent call
-  - Define how this data flows between agents
+- Implement action agents flow
+- Structure final outputs
+  - One final LLM call to combine everything together?
+- Set up user context with RAG
+  - Regular database keywords/encodings
+- Secure everything
