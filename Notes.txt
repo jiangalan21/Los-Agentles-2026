@@ -1,0 +1,15 @@
+Uniquely identify agents with seed field
+
+on_interval - agent does something after each interval of time
+@agent.on_interval(period=1.2)
+
+on_event - trigger code
+@agent.on_event("startup")
+
+agents send messages to each other
+
+class Message(Model):
+    message: str
+can name message classes
+inherits model class, has such built-in types
+send message by instantiating a message obj
