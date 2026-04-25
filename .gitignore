@@ -8,6 +8,7 @@ dist/
 .vite/
 
 # python
+.venv
 venv/
 __pycache__/
 *.pyc
@@ -20,3 +21,4 @@ backend/node_modules/
 # os
 .DS_Store
 Thumbs.db
+

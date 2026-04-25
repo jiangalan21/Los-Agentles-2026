@@ -1,15 +1,31 @@
-Uniquely identify agents with seed field
+Setup
+- Create virtual environment .venv dir, .venv\Scripts\activate
+- Install requirements.txt
+  - Install uagents library
+  - Install python-dotenv
+  - Install openai
+- Create .env
+- Agent Setup
+  - Setup API key on ASI:One platform
+  - Setup seed value
+  - Setup mailbox feature
+    - mailbox=True
+    - Run the agent
+    - Click inspector link in terminal
+    - Connect it with mailbox
 
-on_interval - agent does something after each interval of time
-@agent.on_interval(period=1.2)
+Running the Agent
+- Agent runs locally, using your machine as a server
+- Other agents on the verse can effectively chat with your agent 
+  in real-time through the mailbox feature (essentially a reverse-proxy)
 
-on_event - trigger code
-@agent.on_event("startup")
+Chat protocol
+- Uses on_message event handler
+  - Handler Function parses input, generates response and sends back
+- ASI:One LLM API >> OpenAI agent SDK 
 
-agents send messages to each other
-
-class Message(Model):
-    message: str
-can name message classes
-inherits model class, has such built-in types
-send message by instantiating a message obj
+Tasks
+- Implement skeleton structure of orchestrator
+- Set up context with vectorDB/RAG?
+  - Generate vector embeddings after each agent call
+  - Define how this data flows between agents

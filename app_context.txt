@@ -1,0 +1,45 @@
+This product is a day planner. 
+It allows users to start off their days by receiving a guided set of recommendations based on 
+real time data like weather and current trends as well as user inputs. Users can then receive 
+and take these recommendations to help guide them towards a strong start to the day. 
+This is for the indecisive student who struggles to make decisions in the time constrained 
+environment of the morning rush. It helps put down something concrete for the user to solidly 
+say yes/no on and moves them out of that gray area of indecision. 
+
+Some core functionalities may include:
+Outfit recommendations with real articles of clothing linked
+Song recommendations/playlist creator
+Food/drink recommendations
+Grocery/recipe recommendations, takes into account what’s in season/local deals
+Looks at restaurants in the area and recommends ones that fit the person’s mood/other real time data.
+Custom wellness advice
+User input to further guide recommendations
+
+
+MVP:
+User types a morning prompt and gets back populated agent cards/modules (e.g. weather, outfit, restaurant, music, wellness, etc.)
+Recommendations are consistent with each other (i.e. Outfits will match the weather)
+All agents are registered on agentverse 
+UI has a modular card layout with toggles for each agent
+
+
+Orchestrator / Prompt Parser
+Takes the raw morning prompt and outputs a structured day context JSON object that all agents receive. 
+This is what makes recommendations coherent across agents rather than isolated.
+Key for modularity across app. It acts as the center point that guides the main flow of the app.
+
+
+Demo is considered successful if: 
+A judge can type "I'm stressed, have a midterm at 2pm, and it's cold outside" and receive a weather card, 
+a weather-appropriate outfit, a calming playlist, a nearby comfort food restaurant, and a short wellness 
+tip like "try box breathing before your exam".
+
+i want to change this a little, give me a structure for the orchestrator where there are two stages, 
+context stage and action stage. 
+the context stage will be to gather all necessary context, this can be gather input from the user, 
+retrieve context from database, or making calls to agents where their output serves as context for 
+other agents and is independent of context (e.g. something like the weather, its i not dependent on 
+what the user asks but it affects something like the kind of music we might want to listen to). 
+after gathering context, it will go into the action stage where it makes necessary 
+calls to action agents that are dependent on context. all agents theoretically should have some kind of 
+output that can be parsed into a card on the frontend or work as a response in chat protocol
