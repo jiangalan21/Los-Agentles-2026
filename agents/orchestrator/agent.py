@@ -2,6 +2,13 @@ import asyncio
 from datetime import datetime
 from uuid import uuid4
 import json
+import re
+import sys
+import os
+from dotenv import load_dotenv
+from typing import Optional, Tuple
+
+import httpx
 
 import requests
 from openai import OpenAI
@@ -14,10 +21,7 @@ from uagents_core.contrib.protocols.chat import (
     chat_protocol_spec,
 )
 
-from dotenv import load_dotenv
-import os
-from typing import Optional
-
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.models import (
     ParsedUserInput,
     UserProfile,
@@ -31,6 +35,11 @@ from shared.models import (
 load_dotenv()
 DAYGER_SEED = os.getenv("DAYGER_SEED_VALUE")
 ASI_ONE_API_KEY = os.getenv("ASI_ONE_API_KEY")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:3001")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+
+# Messages from ASI:One may include "[session:UUID]" at the start to link a backend session.
+_SESSION_PREFIX_RE = re.compile(r'^\[session:([a-f0-9\-]{36})\]\s*', re.IGNORECASE)
 
 client = OpenAI(
     base_url='https://api.asi1.ai/v1',
@@ -191,13 +200,20 @@ orchestrator_proto = Protocol(name="orchestrator-context", version="0.1.0")
 _sessions: dict[str, dict] = {}
 
 
-def _new_session(session_id: str, sender: str, parsed_input: ParsedUserInput, user_profile: UserProfile):
+def _new_session(
+    session_id: str,
+    sender: str,
+    parsed_input: ParsedUserInput,
+    user_profile: UserProfile,
+    backend_session_id: Optional[str] = None,
+):
     active_ctx_agents = [k for k, v in CONTEXT_AGENT_ADDRESSES.items() if v]
     active_act_agents = [k for k, v in ACTION_AGENT_ADDRESSES.items() if v]
     _sessions[session_id] = {
         "sender": sender,
         "parsed_input": parsed_input,
         "user_profile": user_profile,
+        "backend_session_id": backend_session_id,
         "context_expected": set(active_ctx_agents),
         "context_received": {},
         "action_expected": set(active_act_agents),
@@ -233,15 +249,22 @@ def parse_user_input(raw_prompt: str) -> ParsedUserInput:
     """LLM call to convert a free-form morning prompt into ParsedUserInput."""
     try:
         r = client.chat.completions.create(
-            model="asi1",
+            model="asi1-mini",
             messages=[
                 {"role": "system", "content": PARSE_SYSTEM_PROMPT},
                 {"role": "user", "content": raw_prompt},
             ],
             max_tokens=512,
         )
-        parsed = json.loads(r.choices[0].message.content)
-    except Exception:
+        raw = r.choices[0].message.content.strip()
+        # Strip markdown code fences if the model wraps the JSON
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        parsed = json.loads(raw.strip())
+    except Exception as e:
+        print(f"[orchestrator] parse_user_input error: {e}")
         parsed = {}
     return ParsedUserInput(raw_prompt=raw_prompt, **parsed)
 
@@ -309,7 +332,7 @@ async def run_action_stage(ctx: Context, session_id: str):
             "No action agents connected yet. Parsed context:\n"
             + json.dumps(enriched.model_dump(), indent=2)
         )
-        await _send_final_reply(ctx, session_id, reply)
+        await _send_final_reply(ctx, session["sender"], reply)
         return
 
     for agent_key, address in ACTION_AGENT_ADDRESSES.items():
@@ -327,14 +350,25 @@ async def run_action_stage(ctx: Context, session_id: str):
 # Response aggregation & final reply
 # ---------------------------------------------------------------------------
 
-def _build_final_reply(session_id: str) -> str:
-    """Combine all action agent card payloads into a user-facing reply.
-    TODO: swap for structured frontend payload once card schema is finalised.
-    """
-    session = _sessions.pop(session_id, {})
-    cards = session.get("action_received", {})
-    if not cards:
-        return "Sorry, no recommendations could be generated."
+async def _push_to_backend(backend_session_id: str, cards: dict) -> None:
+    """POST raw card JSON to the Express backend so the frontend can poll it."""
+    payload = {"session_id": backend_session_id, "outputs": cards}
+    headers = {"x-internal-key": INTERNAL_API_KEY, "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient() as http:
+            r = await http.post(
+                f"{BACKEND_URL}/internal/agent-output",
+                json=payload,
+                headers=headers,
+                timeout=10,
+            )
+            r.raise_for_status()
+    except Exception as e:
+        print(f"[orchestrator] backend push error: {e}")
+
+
+def _build_raw_reply(cards: dict) -> str:
+    """Combine all action agent card payloads into a raw JSON dump reply."""
     lines = ["Good morning! Here is your personalised day plan:\n"]
     for agent_name, card in cards.items():
         lines.append(f"[{agent_name.upper()} CARD]")
@@ -343,10 +377,41 @@ def _build_final_reply(session_id: str) -> str:
     return "\n".join(lines)
 
 
-async def _send_final_reply(ctx: Context, session_id: str, text: str):
-    sender = (_sessions.get(session_id) or {}).get("sender")
-    if not sender:
-        return
+SYNTHESIS_SYSTEM_PROMPT = """
+You are a friendly morning day-planner assistant. You have received structured JSON outputs from several specialist agents (weather, outfit, music, food, wellness). Your job is to weave them into a single, warm, cohesive morning briefing for the user.
+
+Rules:
+- Write in second person ("you", "your").
+- Keep it concise — one short paragraph per card, in this order: weather, outfit, food, music, wellness.
+- Only include a section if data for that card is present.
+- Reference specific details from the JSON (e.g. actual temperature, restaurant name, playlist name, outfit items).
+- Make transitions feel natural — tie recommendations together (e.g. "since it's cold outside, …").
+- End with a short, encouraging closing line.
+- Do NOT output JSON, markdown headers, or bullet lists. Plain prose only.
+"""
+
+
+def _synthesize_reply(cards: dict, parsed_input: ParsedUserInput) -> str:
+    """Use the LLM to turn structured card JSON into cohesive prose."""
+    cards_json = json.dumps(cards, indent=2)
+    user_context = f"User's morning prompt context: {json.dumps(parsed_input.model_dump())}"
+    try:
+        r = client.chat.completions.create(
+            model="asi1-mini",
+            messages=[
+                {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
+                {"role": "user", "content": f"{user_context}\n\nAgent outputs:\n{cards_json}"},
+            ],
+            max_tokens=600,
+        )
+        return r.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[orchestrator] synthesis error: {e}")
+        return _build_raw_reply(cards)
+
+
+
+async def _send_final_reply(ctx: Context, sender: str, text: str):
     await ctx.send(sender, ChatMessage(
         timestamp=datetime.utcnow(),
         msg_id=uuid4(),
@@ -374,17 +439,22 @@ async def handle_message(ctx: Context, sender: str, msg: ChatMessage):
     if not raw_text:
         return
 
-    ctx.logger.info(f"Received morning prompt: {raw_text!r}")
+    # Extract optional backend session ID prefix: "[session:UUID] prompt text"
+    m = _SESSION_PREFIX_RE.match(raw_text)
+    backend_session_id: Optional[str] = m.group(1) if m else None
+    prompt_text = raw_text[m.end():] if m else raw_text
+
+    ctx.logger.info(f"Received morning prompt: {prompt_text!r} (backend_session={backend_session_id})")
 
     # --- CONTEXT STAGE: parse input + fetch profile + call context agents ---
-    parsed_input = parse_user_input(raw_text)
+    parsed_input = parse_user_input(prompt_text)
     ctx.logger.info(f"ParsedUserInput: {parsed_input.model_dump()}")
 
     # TODO: derive real user_id from session/auth token
     user_profile = fetch_user_profile(user_id="placeholder_user")
 
     session_id = str(uuid4())
-    _new_session(session_id, sender, parsed_input, user_profile)
+    _new_session(session_id, sender, parsed_input, user_profile, backend_session_id)
 
     await run_context_stage(ctx, session_id)
 
@@ -427,9 +497,21 @@ async def handle_action_response(ctx: Context, _sender: str, msg: ActionAgentRes
     ctx.logger.info(f"[ACTION STAGE] received card from {msg.agent_name}")
 
     if session["action_expected"] == set(session["action_received"].keys()):
-        ctx.logger.info(f"[ACTION STAGE] complete — sending final reply to user")
-        reply = _build_final_reply(msg.session_id)
-        await _send_final_reply(ctx, msg.session_id, reply)
+        ctx.logger.info(f"[ACTION STAGE] complete — funneling outputs")
+        session = _sessions.pop(msg.session_id)
+        cards: dict = session["action_received"]
+        parsed_input: ParsedUserInput = session["parsed_input"]
+        backend_session_id: Optional[str] = session.get("backend_session_id")
+
+        # Raw JSON → backend (frontend polls this)
+        if backend_session_id:
+            await _push_to_backend(backend_session_id, cards)
+        else:
+            ctx.logger.warning("[ACTION STAGE] no backend_session_id — skipping backend push")
+
+        # Synthesized prose → ASI:One sender
+        reply = _synthesize_reply(cards, parsed_input)
+        await _send_final_reply(ctx, session["sender"], reply)
 
 
 dayger.include(protocol, publish_manifest=True)

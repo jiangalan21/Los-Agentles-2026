@@ -19,7 +19,7 @@ class UserProfile(Model):
     user_id: str
     preferred_cuisine: Optional[str] = None
     dietary_restrictions: Optional[list] = None
-    clothing_style: Optional[str] = None
+    clothing_style: Optional[list] = None
     music_genres: Optional[list] = None
     home_location: Optional[str] = None
     liked_vibes: Optional[list] = None    # vibes/details from previously liked music cards

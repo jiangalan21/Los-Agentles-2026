@@ -7,6 +7,33 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ClothingArticle {
+  outer
+  top
+  bottom
+  shoes
+}
+
+enum ColorTone {
+  warm
+  cold
+  neutral
+}
+
+enum TempRange {
+  hot
+  warm
+  room
+  cool
+  cold
+}
+
+enum Brightness {
+  white
+  grey
+  black
+}
+
 model users {
   id                 String                 @id @default(uuid())
   anon_key           String?                @unique
@@ -137,4 +164,21 @@ model plan_request_agents {
   @@unique([request_id, agent_name])
   @@index([request_id, status])
   @@index([user_id, created_at])
+}
+
+model clothing_items {
+  id         String          @id @default(uuid())
+  name       String
+  article    ClothingArticle
+  color_tone ColorTone
+  temp       TempRange
+  style      String
+  image_link String?
+  color      String
+  brightness Brightness
+  keywords   String[]
+  created_at DateTime        @default(now())
+
+  @@index([article, temp])
+  @@index([article, temp, color_tone])
 }
