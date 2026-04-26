@@ -7,6 +7,8 @@ import feedbackRouter from './routes/feedback'
 import profileRouter from './routes/profile'
 import requestRouter from './routes/request'
 import internalRouter from './routes/internal'
+import mapsRouter from './routes/maps'
+import weatherRouter from './routes/weather'
 
 dotenv.config()
 
@@ -26,6 +28,8 @@ app.use('/feedback', feedbackRouter)
 app.use('/profile', profileRouter)
 app.use('/request', requestRouter)
 app.use('/internal', internalRouter)
+app.use('/maps', mapsRouter)
+app.use('/weather', weatherRouter)
 
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`)

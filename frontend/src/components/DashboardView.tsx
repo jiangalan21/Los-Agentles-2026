@@ -1,14 +1,30 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { CloudSun, Music2, Shirt, Zap } from 'lucide-react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import {
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  Music2,
+  Shirt,
+  Sun,
+  Wind,
+  Zap,
+} from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { JSX, useEffect, useMemo, useState } from 'react'
 import {
   createRequest,
   createSession,
+  getHourlyForecast,
   getProfile,
   getRecentSessions,
   getRequest,
   getSession,
+  getWeatherMapPreviewUrl,
+  regenerateMusicForSession,
   savePreferences,
   saveProfile as saveProfileApi,
   sendFeedback,
@@ -31,6 +47,7 @@ import {
 } from '../lib/userKey'
 import { animation, colors, layout, spacing } from '../tokens'
 import { DashboardCard } from './DashboardCard'
+import { MusicCard } from './cards/MusicCard'
 import { DashboardHeader } from './DashboardHeader'
 import { ExpandedPanel } from './ExpandedPanel'
 import { BackgroundPulse } from './BackgroundPulse'
@@ -47,7 +64,21 @@ type CardDetail = {
   icon: JSX.Element
   subtitle: string
   fields: Array<{ key: string; value: string }>
-  actions: string[]
+  actions: Array<string | { label: string; href?: string }>
+}
+
+type AgentOutput = {
+  value?: string
+  detail?: string
+  previewData?: string
+  tracks?: Array<{ title: string; artist: string; spotify_id?: string | null }>
+}
+
+function isValidSpotifyId(id: string | null | undefined): id is string {
+  if (!id || !/^[A-Za-z0-9]{22}$/.test(id)) return false
+  const tail = id.slice(-6)
+  if (/^(.{2})\1{2}$/.test(tail) || /^(.{3})\1$/.test(tail)) return false
+  return true
 }
 
 function formatCurrentTime(date: Date) {
@@ -58,8 +89,24 @@ function formatCurrentTime(date: Date) {
   }).format(date)
 }
 
+function getWeatherConditionIcon(condition: string) {
+  const normalized = condition.toLowerCase()
+  if (normalized.includes('thunder')) return CloudLightning
+  if (normalized.includes('snow') || normalized.includes('sleet') || normalized.includes('ice')) return CloudSnow
+  if (normalized.includes('drizzle')) return CloudDrizzle
+  if (normalized.includes('rain') || normalized.includes('shower')) return CloudRain
+  if (normalized.includes('fog') || normalized.includes('mist') || normalized.includes('haze') || normalized.includes('smoke')) {
+    return CloudFog
+  }
+  if (normalized.includes('wind')) return Wind
+  if (normalized.includes('cloud')) return Cloud
+  if (normalized.includes('clear') || normalized.includes('sun')) return Sun
+  return CloudSun
+}
+
 export function DashboardView() {
   const userKey = useMemo(() => getUserKey(), [])
+  const queryClient = useQueryClient()
   const [profile, setProfile] = useState<UserProfile>(() => getUserProfile())
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
@@ -69,6 +116,7 @@ export function DashboardView() {
   const [profileToast, setProfileToast] = useState<string | null>(null)
   const [feedbackStateByAgent, setFeedbackStateByAgent] = useState<Record<string, 'liked' | 'disliked' | null>>({})
   const [currentTimeText, setCurrentTimeText] = useState(() => formatCurrentTime(new Date()))
+  const [isForecastModalOpen, setIsForecastModalOpen] = useState(false)
 
   const cardDetails: CardDetail[] = useMemo(
     () => [
@@ -154,6 +202,14 @@ export function DashboardView() {
     },
     onError: (error) => {
       setSessionError(error instanceof Error ? error.message : 'Unable to create session')
+    },
+  })
+
+  const regenerateMusicMutation = useMutation({
+    mutationFn: () => regenerateMusicForSession(userKey, sessionId as string),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['session', sessionId, userKey] })
+      void sendFeedback({ userKey, sessionId: sessionId ?? undefined, agentName: 'music', signal: 'regenerated' })
     },
   })
 
@@ -259,14 +315,16 @@ export function DashboardView() {
         music: true,
         energy: true,
       },
+    }).catch((error) => {
+      console.warn('[preferences] autosave failed:', error)
     })
   }, [profile.dietaryPreferences, profile.musicPreferences, profile.stylePreferences, userKey])
 
   const outputsByAgent = useMemo(() => {
     const outputs = sessionQuery.data?.outputs ?? []
-    return outputs.reduce<Record<string, { value?: string; detail?: string; previewData?: string }>>((acc, output) => {
+    return outputs.reduce<Record<string, AgentOutput>>((acc, output) => {
       if (output.output && typeof output.output === 'object') {
-        acc[output.agentName] = output.output
+        acc[output.agentName] = output.output as AgentOutput
       }
       return acc
     }, {})
@@ -288,6 +346,106 @@ export function DashboardView() {
 
   const completedCount = sessionQuery.data?.outputs?.length ?? 0
   const selectedCard = enrichedCards.find((card) => card.id === selectedCardId) ?? null
+  const selectedCardOutput = selectedCard ? outputsByAgent[selectedCard.id] : undefined
+  const topMusicTrack = selectedCard?.id === 'music' ? selectedCardOutput?.tracks?.[0] : undefined
+  const topMusicTrackSpotifyId = isValidSpotifyId(topMusicTrack?.spotify_id) ? topMusicTrack.spotify_id : null
+  const topMusicTrackName = topMusicTrack ? `${topMusicTrack.title} - ${topMusicTrack.artist}` : null
+  const musicAlbumCoverQuery = useQuery({
+    queryKey: ['music-album-cover', topMusicTrackSpotifyId],
+    enabled: Boolean(selectedCard?.id === 'music' && topMusicTrackSpotifyId),
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      if (!topMusicTrackSpotifyId) {
+        return null
+      }
+      const oEmbedUrl = `https://open.spotify.com/oembed?url=${encodeURIComponent(
+        `https://open.spotify.com/track/${topMusicTrackSpotifyId}`,
+      )}`
+      const response = await fetch(oEmbedUrl)
+      if (!response.ok) {
+        throw new Error('Unable to fetch album artwork')
+      }
+      const data = (await response.json()) as { thumbnail_url?: string }
+      return data.thumbnail_url ?? null
+    },
+  })
+  const weatherMapPreviewUrl =
+    selectedCard?.id === 'weather' && profile.location.trim()
+      ? getWeatherMapPreviewUrl(profile.location.trim())
+      : null
+  const weatherLocationQuery = profile.location.trim() || 'Los Angeles'
+  const hourlyForecastQuery = useQuery({
+    queryKey: ['weather-hourly-forecast', userKey, weatherLocationQuery],
+    enabled: Boolean(selectedCard?.id === 'weather' && isForecastModalOpen),
+    staleTime: 5 * 60_000,
+    queryFn: () => getHourlyForecast(userKey, weatherLocationQuery),
+  })
+  const selectedCardPanel = useMemo(() => {
+    if (!selectedCard) {
+      return null
+    }
+
+    if (selectedCard.id === 'weather') {
+      const weatherOutput = selectedCardOutput
+      const previewText = weatherOutput?.previewData ?? selectedCard.previewData
+      const feelsLikeMatch = previewText.match(/Feels like\s+([^.\n]+)/i)
+      const humidityMatch = previewText.match(/Humidity\s+([^.\n]+)/i)
+      const windMatch = previewText.match(/Wind\s+([^.\n]+)/i)
+
+      const dynamicFields = [
+        { key: 'Current', value: weatherOutput?.detail ?? selectedCard.detail },
+        { key: 'Feels Like', value: feelsLikeMatch?.[1]?.trim() ?? 'Not available yet' },
+        { key: 'Humidity', value: humidityMatch?.[1]?.trim() ?? 'Not available yet' },
+        { key: 'Wind', value: windMatch?.[1]?.trim() ?? 'Not available yet' },
+      ]
+
+      return {
+        ...selectedCard,
+        subtitle: previewText || 'Live weather summary from your current session.',
+        fields: dynamicFields,
+        actions: ['View Hourly Forecast'],
+      }
+    }
+
+    if (selectedCard.id === 'music') {
+      const musicOutput = selectedCardOutput
+      const tracks = musicOutput?.tracks ?? []
+      const firstTrack = tracks[0]
+      const topArtists = Array.from(new Set(tracks.map((track) => track.artist).filter(Boolean))).slice(0, 3)
+
+      return {
+        ...selectedCard,
+        subtitle: musicOutput?.previewData ?? selectedCard.previewData,
+        actions: ['Regenerate Queue'],
+        fields: [
+          { key: 'Vibe', value: musicOutput?.detail ?? selectedCard.detail },
+          { key: 'Track Count', value: `${tracks.length || 0} tracks` },
+          {
+            key: 'Now Suggested',
+            value: firstTrack ? `${firstTrack.title} - ${firstTrack.artist}` : 'Track list is still loading',
+          },
+          {
+            key: 'Top Artists',
+            value: topArtists.length > 0 ? topArtists.join(', ') : 'Artist data not available yet',
+          },
+        ],
+      }
+    }
+
+    return selectedCard
+  }, [profile.location, selectedCard, selectedCardOutput])
+  const panelHeroImageUrl =
+    selectedCard?.id === 'music'
+      ? (musicAlbumCoverQuery.data ?? null)
+      : selectedCard?.id === 'weather'
+        ? weatherMapPreviewUrl
+        : null
+  const panelHeroImageAlt =
+    selectedCard?.id === 'music' && topMusicTrackName
+      ? `${topMusicTrackName} album cover`
+      : selectedCard?.id === 'weather' && profile.location.trim()
+        ? `Map preview of ${profile.location.trim()}`
+        : undefined
   const isPanelOpen = Boolean(selectedCard)
   const completedAgents = useMemo(
     () =>
@@ -311,6 +469,12 @@ export function DashboardView() {
     return fieldsToCheck.some((field) => field.trim().length === 0)
   }, [profile])
   const updatedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+  useEffect(() => {
+    if (selectedCard?.id !== 'weather') {
+      setIsForecastModalOpen(false)
+    }
+  }, [selectedCard?.id])
 
   const handleFeedback = async (agentName: string, signal: 'accepted' | 'rejected' | 'regenerated') => {
     if (!sessionId) {
@@ -474,9 +638,6 @@ export function DashboardView() {
                 detail={enrichedCards[0].detail}
                 previewData={enrichedCards[0].previewData}
                 onClick={() => setSelectedCardId(enrichedCards[0].id)}
-                feedbackState={feedbackStateByAgent[enrichedCards[0].id] ?? null}
-                onLike={() => submitThumbFeedback(enrichedCards[0].id, 'liked')}
-                onDislike={() => submitThumbFeedback(enrichedCards[0].id, 'disliked')}
                 isLoading={!completedAgents.has(enrichedCards[0].id)}
               />
               <div className="translate-y-[20px]">
@@ -495,18 +656,17 @@ export function DashboardView() {
                 />
               </div>
               <div className="translate-y-[20px]">
-                <DashboardCard
-                  accent={enrichedCards[2].accent}
-                  icon={<Music2 size={24} strokeWidth={2.2} />}
-                  label={enrichedCards[2].label}
+                <MusicCard
                   value={enrichedCards[2].value}
                   detail={enrichedCards[2].detail}
                   previewData={enrichedCards[2].previewData}
+                  tracks={(outputsByAgent['music'] as { tracks?: Array<{ title: string; artist: string; spotify_id?: string | null }> } | undefined)?.tracks}
+                  isLoading={!completedAgents.has('music') || regenerateMusicMutation.isPending}
+                  feedbackState={feedbackStateByAgent['music'] ?? null}
+                  onLike={() => submitThumbFeedback('music', 'liked')}
+                  onDislike={() => submitThumbFeedback('music', 'disliked')}
+                  onRegenerate={sessionId ? () => regenerateMusicMutation.mutate() : undefined}
                   onClick={() => setSelectedCardId(enrichedCards[2].id)}
-                  feedbackState={feedbackStateByAgent[enrichedCards[2].id] ?? null}
-                  onLike={() => submitThumbFeedback(enrichedCards[2].id, 'liked')}
-                  onDislike={() => submitThumbFeedback(enrichedCards[2].id, 'disliked')}
-                  isLoading={!completedAgents.has(enrichedCards[2].id)}
                 />
               </div>
               <DashboardCard
@@ -555,14 +715,17 @@ export function DashboardView() {
               >
                 {selectedCard ? (
                   <ExpandedPanel
-                    accent={selectedCard.accent}
-                    label={selectedCard.label}
-                    title={selectedCard.value}
-                    subtitle={selectedCard.subtitle}
-                    icon={selectedCard.icon}
-                    fields={selectedCard.fields}
-                    actions={selectedCard.actions}
+                    accent={(selectedCardPanel ?? selectedCard).accent}
+                    label={(selectedCardPanel ?? selectedCard).label}
+                    title={(selectedCardPanel ?? selectedCard).value}
+                    titleClassName={selectedCard.id === 'music' ? 'text-4xl xl:text-5xl break-words' : undefined}
+                    subtitle={(selectedCardPanel ?? selectedCard).subtitle}
+                    icon={(selectedCardPanel ?? selectedCard).icon}
+                    fields={(selectedCardPanel ?? selectedCard).fields}
+                    actions={(selectedCardPanel ?? selectedCard).actions}
                     updatedAt={updatedAt}
+                    heroImageUrl={panelHeroImageUrl}
+                    heroImageAlt={panelHeroImageAlt}
                     onClose={() => {
                       void handleFeedback(selectedCard.id, 'rejected')
                       setSelectedCardId(null)
@@ -571,6 +734,12 @@ export function DashboardView() {
                     onLike={() => submitThumbFeedback(selectedCard.id, 'liked')}
                     onDislike={() => submitThumbFeedback(selectedCard.id, 'disliked')}
                     onActionClick={(action) => {
+                      if (selectedCard.id === 'weather') {
+                        if (action === 'View Hourly Forecast') {
+                          setIsForecastModalOpen(true)
+                          return
+                        }
+                      }
                       const signal = action.toLowerCase().includes('regenerate') ? 'regenerated' : 'accepted'
                       void handleFeedback(selectedCard.id, signal)
                     }}
@@ -581,6 +750,79 @@ export function DashboardView() {
           ) : null}
         </AnimatePresence>
       </div>
+
+      <AnimatePresence>
+        {isForecastModalOpen && selectedCard?.id === 'weather' ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="fixed inset-0 z-50 flex h-screen w-screen flex-col bg-background p-8 backdrop-blur-sm"
+          >
+            <div className="mx-auto flex w-full max-w-[1600px] items-start justify-between gap-4">
+              <div>
+                <p className="font-body text-xs font-bold uppercase tracking-[0.16em] text-primary">
+                  Hourly Forecast
+                </p>
+                <h2 className="mt-2 font-display text-5xl font-extrabold tracking-[-0.03em]">
+                  {hourlyForecastQuery.data?.resolvedLocation ?? weatherLocationQuery}
+                </h2>
+                <p className="mt-2 font-body text-sm text-foreground/70">
+                  Branded in-app 3-hour forecast timeline.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsForecastModalOpen(false)}
+                className="rounded-xl border border-border bg-muted/40 px-4 py-2 font-body text-xs font-bold uppercase tracking-[0.14em] text-foreground/80 transition-all duration-200 ease-out hover:border-foreground/40 hover:text-foreground"
+              >
+                Close Forecast
+              </button>
+            </div>
+
+            <div className="mx-auto mt-8 w-full max-w-[1600px] flex-1 overflow-hidden rounded-2xl border border-border bg-card/70 p-6">
+              {hourlyForecastQuery.isError ? (
+                <div className="flex h-full items-center justify-center rounded-xl border border-secondary/40 bg-secondary/10 px-6 py-5 text-secondary">
+                  Unable to load hourly forecast right now.
+                </div>
+              ) : hourlyForecastQuery.isPending ? (
+                <div className="flex h-full items-center justify-center">
+                  <div className="dayger-shimmer h-24 w-64 rounded-xl" />
+                </div>
+              ) : (
+                <div className="grid h-full grid-cols-6 grid-rows-2 gap-3">
+                  {(hourlyForecastQuery.data?.entries ?? []).slice(0, 12).map((entry) => {
+                    const ConditionIcon = getWeatherConditionIcon(entry.condition)
+                    return (
+                      <div
+                        key={entry.timestamp}
+                        className="flex min-h-0 flex-col rounded-2xl border border-border bg-muted/30 p-3"
+                      >
+                        <p className="font-body text-xs font-bold uppercase tracking-[0.14em] text-foreground/65">
+                          {entry.timeLabel}
+                        </p>
+                        <div className="mt-3 flex items-center justify-between">
+                          <ConditionIcon size={22} className="text-primary" />
+                          <p className="font-display text-2xl font-extrabold tracking-[-0.02em]">{entry.tempF}°</p>
+                        </div>
+                        <p className="mt-2 truncate font-body text-sm font-semibold text-foreground/85">{entry.condition}</p>
+                        <p className="truncate font-body text-[11px] text-foreground/55 capitalize">{entry.description}</p>
+                        <div className="mt-2 space-y-1 font-body text-[11px] text-foreground/70">
+                          <p>Feels: {entry.feelsLikeF}°F</p>
+                          <p>Rain: {entry.precipitationChance}%</p>
+                          <p>Wind: {entry.windMph} mph</p>
+                          <p>Humidity: {entry.humidity}%</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <ProfileModal
         isOpen={isProfileOpen}

@@ -10,8 +10,7 @@ from uuid import uuid4
 
 import requests
 from dotenv import load_dotenv
-
-from uagents import Agent, Context, Protocol
+from uagents import Agent, Context, Model, Protocol
 from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement,
     ChatMessage,
@@ -33,6 +32,21 @@ ASI_URL = os.getenv("ASI_API_URL", "https://api.asi1.ai/v1/chat/completions")
 WEATHER_AGENT_SEED = os.getenv("WEATHER_AGENT_SEED")
 
 FALLBACK_MESSAGE = "Weather service unavailable — assuming mild, partly cloudy conditions around 68°F."
+
+
+class WeatherRunRequest(Model):
+    location: str
+
+
+class WeatherRunResponse(Model):
+    condition: str
+    description: str
+    temperature_f: int
+    feels_like_f: int
+    humidity: int
+    wind_speed: float
+    narrative: str
+    error: Optional[str] = None
 
 # Hours (local) that define each period
 PERIODS: Dict[str, Tuple[int, int]] = {
@@ -580,6 +594,28 @@ async def handle_context_request(ctx: Context, sender: str, msg: ContextAgentReq
 
 agent.include(proto, publish_manifest=True)
 agent.include(orchestrator_proto, publish_manifest=True)
+
+
+@agent.on_rest_post("/run", WeatherRunRequest, WeatherRunResponse)
+async def handle_rest_run(ctx: Context, req: WeatherRunRequest) -> WeatherRunResponse:
+    data = await _fetch_weather_for_location(req.location)
+    if not data:
+        return WeatherRunResponse(
+            condition="Clear", description="mild conditions",
+            temperature_f=68, feels_like_f=68,
+            humidity=50, wind_speed=5.0, narrative=FALLBACK_MESSAGE,
+            error=f"Could not fetch weather for {req.location!r}",
+        )
+    return WeatherRunResponse(
+        condition=data["condition"],
+        description=data["description"],
+        temperature_f=data["temperature_f"],
+        feels_like_f=data["feels_like_f"],
+        humidity=data["humidity"],
+        wind_speed=data["wind_speed"],
+        narrative=data["narrative"],
+        error=None,
+    )
 
 
 @agent.on_event("startup")

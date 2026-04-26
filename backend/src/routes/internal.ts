@@ -3,49 +3,70 @@ import { prisma } from '../lib/prisma'
 
 const router = Router()
 
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
-
-function checkInternalKey(req: any, res: any, next: any) {
-  if (INTERNAL_API_KEY && req.headers['x-internal-key'] !== INTERNAL_API_KEY) {
-    return res.status(401).json({ error: 'unauthorized' })
-  }
-  next()
-}
-
-// POST /internal/agent-output
-// Called by the Python orchestrator to push raw card JSON for the frontend to poll.
-// Body: { session_id: string, outputs: Record<string, unknown> }
-router.post('/agent-output', checkInternalKey, async (req, res) => {
-  const { session_id, outputs } = req.body as {
-    session_id: string
-    outputs: Record<string, unknown>
+router.post('/results', async (req, res) => {
+  const { sessionId, requestId, agents } = req.body as {
+    sessionId?: string
+    requestId?: string | null
+    agents?: Array<{ agentName: string; output: unknown }>
   }
 
-  if (!session_id || !outputs || typeof outputs !== 'object') {
-    return res.status(400).json({ error: 'session_id and outputs are required' })
-  }
-
-  const session = await prisma.sessions.findUnique({ where: { id: session_id } })
-  if (!session) {
-    return res.status(404).json({ error: 'session not found' })
+  if (!sessionId || !Array.isArray(agents) || agents.length === 0) {
+    return res.status(400).json({ error: 'sessionId and agents are required' })
   }
 
   try {
-    await Promise.all(
-      Object.entries(outputs).map(([agentName, cardData]) =>
-        prisma.agent_outputs.create({
+    for (const { agentName, output } of agents) {
+      if (requestId) {
+        const existing = await prisma.plan_request_agents.findFirst({
+          where: { request_id: requestId, agent_name: agentName },
+        })
+        if (existing?.status === 'completed') {
+          continue
+        }
+      }
+
+      await prisma.agent_outputs.create({
+        data: {
+          session_id: sessionId,
+          request_id: requestId ?? null,
+          agent_name: agentName,
+          output: output as never,
+        },
+      })
+
+      if (requestId) {
+        await prisma.plan_request_agents.update({
+          where: {
+            request_id_agent_name: { request_id: requestId, agent_name: agentName },
+          },
           data: {
-            session_id,
-            agent_name: agentName,
-            output: cardData as any,
+            status: 'completed',
+            completed_at: new Date(),
+            last_error: null,
           },
         })
-      )
-    )
-    return res.status(201).json({ ok: true })
+      }
+    }
+
+    if (requestId) {
+      const pendingOrFailed = await prisma.plan_request_agents.count({
+        where: { request_id: requestId, status: { not: 'completed' } },
+      })
+
+      await prisma.plan_requests.update({
+        where: { id: requestId },
+        data: {
+          status: pendingOrFailed === 0 ? 'completed' : 'running',
+          completed_at: pendingOrFailed === 0 ? new Date() : null,
+        },
+      })
+    }
+
+    return res.json({ ok: true })
   } catch (error) {
+    console.error('[internal/results] error:', error)
     return res.status(500).json({
-      error: 'failed to store agent outputs',
+      error: 'failed to write agent results',
       detail: error instanceof Error ? error.message : 'Unknown error',
     })
   }

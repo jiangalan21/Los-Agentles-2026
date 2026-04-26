@@ -93,6 +93,122 @@ router.post('/', requireAnonUser, async (req, res) => {
   }
 })
 
+// POST /session/:id/regenerate/music — re-run music agent for an existing session
+router.post('/:id/regenerate/music', requireAnonUser, async (req, res) => {
+  const sessionId = req.params.id
+  const user = req.user
+  if (!sessionId || !user) return res.status(400).json({ error: 'session id is required' })
+
+  try {
+    const session = await prisma.sessions.findFirst({
+      where: { id: sessionId, user_id: user.id },
+      include: {
+        agent_outputs: {
+          where: { agent_name: 'weather' },
+          orderBy: { created_at: 'asc' },
+          take: 1,
+        },
+      },
+    })
+    if (!session) return res.status(404).json({ error: 'session not found' })
+
+    const dayCtx = session.day_context as Record<string, unknown> | null
+    const weatherOut = session.agent_outputs[0]?.output as Record<string, unknown> | null
+
+    const musicFeedbackEvents = await prisma.feedback_events.findMany({
+      where: { user_id: user.id, agent_name: 'music', signal: { in: ['liked', 'disliked'] } },
+      orderBy: { created_at: 'desc' },
+      take: 6,
+      select: { signal: true, session_id: true },
+    })
+    const feedbackSessionIds = musicFeedbackEvents
+      .map((e) => e.session_id)
+      .filter((id): id is string => Boolean(id))
+    const musicOutputsForFeedback =
+      feedbackSessionIds.length > 0
+        ? await prisma.agent_outputs.findMany({
+            where: { session_id: { in: feedbackSessionIds }, agent_name: 'music' },
+            orderBy: { created_at: 'desc' },
+            select: { session_id: true, output: true },
+          })
+        : []
+    const musicOutputByFeedbackSession = musicOutputsForFeedback.reduce<Record<string, { detail?: string }>>(
+      (acc, o) => { if (!acc[o.session_id]) acc[o.session_id] = o.output as { detail?: string }; return acc },
+      {},
+    )
+    const likedVibes: string[] = []
+    const dislikedVibes: string[] = []
+    for (const event of musicFeedbackEvents) {
+      if (!event.session_id) continue
+      const detail = musicOutputByFeedbackSession[event.session_id]?.detail
+      if (!detail) continue
+      if (event.signal === 'liked') likedVibes.push(detail)
+      else dislikedVibes.push(detail)
+    }
+
+    let weatherCondition: string | null = null
+    let temperatureF: number | null = null
+    if (typeof weatherOut?.detail === 'string') {
+      weatherCondition = weatherOut.detail.split(' · ')[0] ?? null
+    }
+    if (typeof weatherOut?.value === 'string') {
+      const m = weatherOut.value.match(/(\d+)/)
+      if (m) temperatureF = parseInt(m[1], 10)
+    }
+
+    const preferenceHints = (dayCtx?.userContext as Record<string, unknown> | undefined)?.preferenceHints as Record<string, unknown> | undefined
+    const musicGenres = Array.isArray(preferenceHints?.music) ? preferenceHints.music as string[] : []
+    const events = Array.isArray(dayCtx?.events) ? (dayCtx.events as string[]).join(', ') : null
+
+    const musicPayload = {
+      mood: typeof dayCtx?.mood === 'string' ? dayCtx.mood : null,
+      stress_level: null,
+      schedule_notes: events,
+      music_vibe: null,
+      music_genres: musicGenres,
+      weather_condition: weatherCondition,
+      temperature_f: temperatureF,
+      liked_vibes: likedVibes,
+      disliked_vibes: dislikedVibes,
+    }
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30_000)
+    let musicData: unknown
+    try {
+      const agentRes = await fetch('http://localhost:8003/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(musicPayload),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+      if (!agentRes.ok) throw new Error(`Music agent returned ${agentRes.status}`)
+      musicData = await agentRes.json()
+    } catch (err) {
+      clearTimeout(timeoutId)
+      throw err
+    }
+
+    await prisma.agent_outputs.create({
+      data: {
+        session_id: sessionId,
+        request_id: session.request_id,
+        agent_name: 'music',
+        output: musicData as never,
+      },
+    })
+
+    return res.json({ ok: true, output: musicData })
+  } catch (error) {
+    console.error('[regenerate/music] error:', error)
+    return res.status(500).json({
+      error: 'music regeneration failed',
+      detail: error instanceof Error ? error.message : 'Unknown error',
+    })
+  }
+})
+
 // GET /session/:id — return session with all agent outputs
 router.get('/:id', requireAnonUser, async (req, res) => {
   const sessionId = req.params.id

@@ -118,6 +118,16 @@ export async function saveProfile(userKey: string, profile: ProfilePayload): Pro
   })
 }
 
+export async function regenerateMusicForSession(
+  userKey: string,
+  sessionId: string,
+): Promise<{ ok: boolean; output: AgentOutput['output'] }> {
+  return request<{ ok: boolean; output: AgentOutput['output'] }>(`/session/${sessionId}/regenerate/music`, {
+    method: 'POST',
+    userKey,
+  })
+}
+
 export async function sendFeedback(payload: {
   userKey: string
   sessionId?: string
@@ -133,6 +143,32 @@ export async function sendFeedback(payload: {
     method: 'POST',
     userKey: payload.userKey,
     body: payload,
+  })
+}
+
+export function getWeatherMapPreviewUrl(location: string): string {
+  return `${API_URL}/maps/preview-image?location=${encodeURIComponent(location)}`
+}
+
+export type HourlyForecastEntry = {
+  timestamp: number
+  timeLabel: string
+  tempF: number
+  feelsLikeF: number
+  humidity: number
+  windMph: number
+  precipitationChance: number
+  condition: string
+  description: string
+  iconCode?: string | null
+}
+
+export async function getHourlyForecast(
+  userKey: string,
+  location: string,
+): Promise<{ location: string; resolvedLocation: string; entries: HourlyForecastEntry[] }> {
+  return request(`/weather/hourly?location=${encodeURIComponent(location)}`, {
+    userKey,
   })
 }
 

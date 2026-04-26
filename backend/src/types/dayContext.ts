@@ -57,4 +57,8 @@ export interface UserContextSummary {
     topLikedAgents: string[]
     topDislikedAgents: string[]
   }
+  musicFeedback?: {
+    likedVibes: string[]
+    dislikedVibes: string[]
+  }
 }
