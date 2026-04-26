@@ -1,6 +1,10 @@
 from datetime import datetime
 from uuid import uuid4
 import json
+import sys
+import os
+from dotenv import load_dotenv
+from typing import Optional
 
 from openai import OpenAI
 from uagents import Agent, Context, Protocol, Model
@@ -12,10 +16,7 @@ from uagents_core.contrib.protocols.chat import (
     chat_protocol_spec,
 )
 
-from dotenv import load_dotenv
-import os
-from typing import Optional
-
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.models import (
     ParsedUserInput,
     UserProfile,
@@ -26,7 +27,7 @@ from shared.models import (
     ActionAgentResponse,
 )
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.venv', '.env'))
+load_dotenv()
 DAYGER_SEED = os.getenv("DAYGER_SEED_VALUE")
 ASI_ONE_API_KEY = os.getenv("ASI_ONE_API_KEY")
 

@@ -24,9 +24,14 @@ Chat protocol
   - Handler Function parses input, generates response and sends back
 - ASI:One LLM API >> OpenAI agent SDK 
 
+Agent .env files
+- Changing the SEED, changes the ADDRESS
+- 
+
 Tasks
 - Implement skeleton structure of orchestrator
-- Implement action agents flow
+- Implement outfit agent
+  - Add it to orchestrator after
 - Structure final outputs
   - One final LLM call to combine everything together?
 - Set up user context with RAG

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import requests
 from dotenv import load_dotenv
+
 from uagents import Agent, Context, Protocol
 from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement,
@@ -29,6 +30,7 @@ OWM_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 OWM_GEO_URL = "http://api.openweathermap.org/geo/1.0/direct"
 OWM_REVERSE_URL = "http://api.openweathermap.org/geo/1.0/reverse"
 ASI_URL = os.getenv("ASI_API_URL", "https://api.asi1.ai/v1/chat/completions")
+WEATHER_AGENT_SEED = os.getenv("WEATHER_AGENT_SEED")
 
 FALLBACK_MESSAGE = "Weather service unavailable — assuming mild, partly cloudy conditions around 68°F."
 
@@ -46,9 +48,9 @@ _endpoint = os.getenv("AGENT_ENDPOINT") or "http://localhost:8001/submit"
 
 agent = Agent(
     name="weather-agent",
-    seed=os.getenv("AGENT_SEED", "weather-agent-seed"),
+    seed=WEATHER_AGENT_SEED,
     port=8001,
-    endpoint=[_endpoint],
+    endpoint=[_endpoint], # can delete
     mailbox=True,
 )
 
