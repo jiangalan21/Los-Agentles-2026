@@ -20,7 +20,13 @@ router.post('/results', async (req, res) => {
         const existing = await prisma.plan_request_agents.findFirst({
           where: { request_id: requestId, agent_name: agentName },
         })
+        // #region agent log
+        fetch('http://127.0.0.1:7274/ingest/cc5e17f3-e147-4b32-a248-58f83f5c2e99',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'244467'},body:JSON.stringify({sessionId:'244467',location:'backend/src/routes/internal.ts:loop:existingStatus',message:'internal/results existing request-agent status',data:{runId:`run-${sessionId}`,hypothesisId:'H4',sessionId,requestId,agentName,existingStatus:existing?.status??null},timestamp:Date.now(),runId:`run-${sessionId}`,hypothesisId:'H4'})}).catch(()=>{})
+        // #endregion
         if (existing?.status === 'completed') {
+          // #region agent log
+          fetch('http://127.0.0.1:7274/ingest/cc5e17f3-e147-4b32-a248-58f83f5c2e99',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'244467'},body:JSON.stringify({sessionId:'244467',location:'backend/src/routes/internal.ts:loop:skipCompleted',message:'internal/results skipped already completed agent',data:{runId:`run-${sessionId}`,hypothesisId:'H4',sessionId,requestId,agentName},timestamp:Date.now(),runId:`run-${sessionId}`,hypothesisId:'H4'})}).catch(()=>{})
+          // #endregion
           continue
         }
       }
