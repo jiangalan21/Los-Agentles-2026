@@ -12,23 +12,30 @@ A morning day planner for the indecisive student. The user describes their morni
 
 ### Data Flow
 
-1. User opens app → UUID generated, stored in localStorage
-2. User submits morning prompt → `POST /session`
-3. Node backend calls Claude Sonnet to parse prompt → `day_context` JSON
-4. Backend fetches user preferences from Postgres → merges into `day_context`
-5. Backend calls weather agent → weather data added to `day_context`
-6. Backend calls remaining agents **in parallel** with full `day_context`
-7. Each agent response stored in `agent_outputs` table as it arrives
-8. Frontend polls `GET /session/:id` via TanStack Query
-9. Cards render progressively as outputs arrive
+1. User opens app → anonymous `user_key` generated, stored in localStorage
+2. Frontend resolves/creates anonymous user context (`x-user-key`) on API calls
+3. User updates profile/preferences (`/profile`, `/preferences`) to shape prompt context
+4. User starts a day plan request → server creates `request_id` via `POST /request`
+5. User submits prompt/session request (`POST /session`) with `user_key` + `request_id`
+6. Backend composes `user_context` from preferences, recent sessions, and feedback signals
+7. Prompt parser creates enriched `day_context` JSON
+8. Orchestrator runs agents and records per-agent output/status
+9. Frontend polls session/request status and renders cards progressively
+10. User feedback (`/feedback`) is stored and fed back into future context assembly
 
 ### Backend Routes
 
 | Method | Route | Purpose |
 |--------|-------|---------|
-| POST | `/session` | Creates session, triggers prompt parsing |
-| GET | `/session/:id` | Returns session + all agent outputs |
-| POST | `/preferences` | Saves/updates user preferences |
+| POST | `/session` | Creates a session for the current anonymous user and triggers orchestration |
+| GET | `/session` | Returns recent sessions for the current anonymous user |
+| GET | `/session/:id` | Returns session + all agent outputs (ownership checked) |
+| POST | `/preferences` | Saves/updates user preference profile |
+| POST | `/feedback` | Stores per-module feedback signals (`liked`/`disliked`/etc.) |
+| GET | `/profile` | Returns persisted user profile context for the current anonymous user |
+| PUT | `/profile` | Saves profile context (name, location, routine, preference text) |
+| POST | `/request` | Creates `request_id` for idempotent day-plan runs |
+| GET | `/request/:id` | Returns request + per-agent completion state |
 
 ---
 
@@ -37,9 +44,10 @@ A morning day planner for the indecisive student. The user describes their morni
 ### Frontend
 - **Framework:** React + Vite
 - **Styling:** Tailwind CSS
-- **State:** Zustand
+- **State:** React state/hooks + localStorage-backed user/session utilities
 - **Data fetching:** TanStack Query
-- **Component library:** shadcn/ui
+- **Animation:** Framer Motion
+- **Component library:** None (custom components)
 
 ### Backend
 - **Runtime:** Node.js + Express
@@ -48,6 +56,35 @@ A morning day planner for the indecisive student. The user describes their morni
 
 ### Database
 - PostgreSQL + Prisma
+- Anonymous-first identity keyed by `users.anon_key`
+- Session and agent output persistence for progressive rendering
+- Feedback and memory snapshot tables for preference learning over time
+
+### Database Framework (Current)
+
+Current persisted models:
+- `users` — anonymous identity (`anon_key`), ownership root, and persisted profile fields (`name`, `location`, `morning_focus`, `routine_notes`, `dietary_profile`, `music_profile`, `style_profile`)
+- `sessions` — per-plan request payload + parsed context snapshot
+- `agent_outputs` — per-agent outputs, timestamps, completion evidence, and optional `request_id` linkage
+- `user_preferences` — normalized cuisine/music/style preference arrays
+- `feedback_events` — per-module feedback signals and metadata (`module_variant`, `reason_code`, `session_phase`, `score`)
+- `user_memory_snapshots` — summarized longitudinal memory windows
+- `plan_requests` — one `request_id` per day-plan initiation, lifecycle status
+- `plan_request_agents` — per-agent status for idempotent execution and dedupe
+
+### Frontend Architecture (Current)
+
+- Route-level views: landing (`/`) and dashboard (`/dashboard`) are selected in `App.tsx` with client-side history state.
+- Dashboard orchestration in `DashboardView`:
+  - Maintains `user_key`, active `session_id`, and active `request_id` in localStorage.
+  - Uses TanStack Query to poll both session outputs and request/agent status.
+  - Maps progressive agent completion into per-card loading states.
+  - Stores profile locally and syncs to backend via `/profile`.
+  - Captures card/panel feedback and sends to `/feedback`.
+- UI composition:
+  - Reusable modules: `DashboardCard`, `ExpandedPanel`, `StatBox`, `ProfileModal`, `DashboardHeader`, `Logo`.
+  - Live `Current Time` stat box in dashboard updates every second.
+  - Dashboard background includes static ambient orbs plus intermittent accent pulse animation for ambient motion.
 
 ### LLM
 - **Prompt parser:** Claude Sonnet (Anthropic API)
@@ -133,3 +170,7 @@ The MVP is complete when:
 
 <!-- Append one-liners here whenever an architecture choice is made. Format: YYYY-MM-DD — decision -->
 2026-04-25 — Agents use asi1-mini (ASI API); Claude Sonnet reserved for prompt parser and orchestrator only.
+2026-04-25 — Anonymous-first persistence adopted (`user_key` + `anon_key`) to support fast hackathon personalization without full auth.
+2026-04-25 — Feedback events and user context assembly added as first-class prompt steering inputs.
+2026-04-25 — Request-level orchestration with `request_id` and per-agent completion tracking implemented to prevent duplicate API/LLM calls.
+2026-04-25 — Dashboard UX now includes progressive card loading states, profile completeness badge, live current-time stat, and ambient background pulse motion.

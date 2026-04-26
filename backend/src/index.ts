@@ -3,6 +3,9 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import sessionRouter from './routes/session'
 import preferencesRouter from './routes/preferences'
+import feedbackRouter from './routes/feedback'
+import profileRouter from './routes/profile'
+import requestRouter from './routes/request'
 
 dotenv.config()
 
@@ -18,6 +21,9 @@ app.get('/health', (_req, res) => {
 
 app.use('/session', sessionRouter)
 app.use('/preferences', preferencesRouter)
+app.use('/feedback', feedbackRouter)
+app.use('/profile', profileRouter)
+app.use('/request', requestRouter)
 
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`)

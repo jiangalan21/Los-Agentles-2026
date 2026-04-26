@@ -8,10 +8,24 @@ datasource db {
 }
 
 model users {
-  id          String            @id @default(uuid())
-  created_at  DateTime          @default(now())
-  sessions    sessions[]
-  preferences user_preferences?
+  id                 String                 @id @default(uuid())
+  anon_key           String?                @unique
+  name               String?
+  location           String?
+  morning_focus      String?
+  routine_notes      String?
+  dietary_profile    String?
+  music_profile      String?
+  style_profile      String?
+  created_at         DateTime               @default(now())
+  sessions           sessions[]
+  preferences        user_preferences?
+  feedback           feedback_events[]
+  snapshots          user_memory_snapshots[]
+  plan_requests      plan_requests[]
+  request_agent_runs plan_request_agents[]
+
+  @@index([anon_key])
 }
 
 model user_preferences {
@@ -29,17 +43,98 @@ model sessions {
   id            String          @id @default(uuid())
   user_id       String
   user          users           @relation(fields: [user_id], references: [id])
+  request_id    String?
+  request       plan_requests?  @relation(fields: [request_id], references: [id])
   prompt        String
+  mood          String?
+  energy_level  Int?
   day_context   Json?
   created_at    DateTime        @default(now())
   agent_outputs agent_outputs[]
+  feedback      feedback_events[]
+
+  @@index([user_id, created_at])
+  @@index([request_id])
 }
 
 model agent_outputs {
-  id         String   @id @default(uuid())
+  id         String         @id @default(uuid())
   session_id String
-  session    sessions @relation(fields: [session_id], references: [id])
+  session    sessions       @relation(fields: [session_id], references: [id])
+  request_id String?
+  request    plan_requests? @relation(fields: [request_id], references: [id])
   agent_name String
   output     Json?
-  created_at DateTime @default(now())
+  created_at DateTime       @default(now())
+
+  @@index([session_id, created_at])
+  @@index([request_id, agent_name, created_at])
+}
+
+model feedback_events {
+  id             String    @id @default(uuid())
+  user_id        String
+  user           users     @relation(fields: [user_id], references: [id])
+  session_id     String?
+  session        sessions? @relation(fields: [session_id], references: [id])
+  agent_name     String
+  signal         String
+  module_variant String?
+  reason_code    String?
+  session_phase  String?
+  score          Int?
+  payload        Json?
+  created_at     DateTime  @default(now())
+
+  @@index([user_id, created_at])
+  @@index([session_id, created_at])
+  @@index([user_id, agent_name, created_at])
+}
+
+model user_memory_snapshots {
+  id           String   @id @default(uuid())
+  user_id      String
+  user         users    @relation(fields: [user_id], references: [id])
+  summary_json Json
+  window_start DateTime
+  window_end   DateTime
+  created_at   DateTime @default(now())
+
+  @@index([user_id, created_at])
+}
+
+model plan_requests {
+  id           String              @id @default(uuid())
+  user_id      String
+  user         users               @relation(fields: [user_id], references: [id])
+  status       String              @default("pending")
+  prompt       String?
+  profile_json Json?
+  started_at   DateTime?
+  completed_at DateTime?
+  created_at   DateTime            @default(now())
+  sessions     sessions[]
+  outputs      agent_outputs[]
+  agent_runs   plan_request_agents[]
+
+  @@index([user_id, created_at])
+}
+
+model plan_request_agents {
+  id            String        @id @default(uuid())
+  request_id    String
+  request       plan_requests @relation(fields: [request_id], references: [id])
+  user_id       String
+  user          users         @relation(fields: [user_id], references: [id])
+  agent_name    String
+  status        String        @default("pending")
+  attempt_count Int           @default(0)
+  last_error    String?
+  completed_at  DateTime?
+  created_at    DateTime      @default(now())
+  updated_at    DateTime      @updatedAt
+
+  @@unique([request_id, agent_name])
+  @@index([request_id, status])
+  @@index([user_id, created_at])
 }
