@@ -6,97 +6,6 @@ export async function orchestrateAgents(
   dayContext: DayContext,
   requestId?: string
 ): Promise<void> {
-  const agentPayloads = [
-    {
-      agentName: 'energy',
-      output: {
-        value: `${Math.max(55, dayContext.energyLevel * 10)}%`,
-        detail: 'Momentum forecast',
-        previewData: 'Peak focus around late morning.',
-      },
-    },
-  ]
-
-  for (const payload of syncAgentPayloads) {
-    if (requestId) {
-      const run = await prisma.plan_request_agents.findFirst({
-        where: {
-          request_id: requestId,
-          agent_name: payload.agentName,
-        },
-      })
-
-      if (run?.status === 'completed') {
-        continue
-      }
-
-      await prisma.plan_request_agents.upsert({
-        where: {
-          request_id_agent_name: {
-            request_id: requestId,
-            agent_name: payload.agentName,
-          },
-        },
-        update: {
-          status: 'running',
-          attempt_count: { increment: 1 },
-          last_error: null,
-        },
-        create: {
-          request_id: requestId,
-          user_id: dayContext.userId,
-          agent_name: payload.agentName,
-          status: 'running',
-          attempt_count: 1,
-        },
-      })
-    }
-
-    try {
-      await wait(250)
-      await prisma.agent_outputs.create({
-        data: {
-          session_id: sessionId,
-          request_id: requestId ?? null,
-          agent_name: payload.agentName,
-          output: payload.output as never,
-        },
-      })
-
-      if (requestId) {
-        await prisma.plan_request_agents.update({
-          where: {
-            request_id_agent_name: {
-              request_id: requestId,
-              agent_name: payload.agentName,
-            },
-          },
-          data: {
-            status: 'completed',
-            completed_at: new Date(),
-            last_error: null,
-          },
-        })
-      }
-    } catch (error) {
-      if (requestId) {
-        await prisma.plan_request_agents.update({
-          where: {
-            request_id_agent_name: {
-              request_id: requestId,
-              agent_name: payload.agentName,
-            },
-          },
-          data: {
-            status: 'failed',
-            last_error: error instanceof Error ? error.message : 'Unknown error',
-          },
-        })
-      }
-      throw error
-    }
-  }
-
   // Pre-seed energy with a deterministic fallback so the card renders immediately.
   // Status stays 'running' — Python will overwrite with LLM-generated output via /internal/results.
   try {
@@ -114,7 +23,7 @@ export async function orchestrateAgents(
 
   // weather, music, and energy are produced by Python and delivered via /internal/results callback.
   if (requestId) {
-    const asyncAgents = ['weather', 'music', 'energy']
+    const asyncAgents = ['weather', 'outfit', 'music', 'energy']
     for (const agentName of asyncAgents) {
       await prisma.plan_request_agents.upsert({
         where: {
@@ -202,11 +111,6 @@ function formatClock(date: Date): string {
   }).format(date)
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
 
 async function callPythonOrchestrator(
   sessionId: string,
