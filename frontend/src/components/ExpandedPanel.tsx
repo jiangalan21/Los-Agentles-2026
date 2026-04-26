@@ -19,6 +19,11 @@ type ExpandedPanelProps = {
   feedbackState?: 'liked' | 'disliked' | null
   onLike?: () => void
   onDislike?: () => void
+  energyInsights?: {
+    energyCurve?: Array<{ timeLabel: string; value: number }>
+    wellnessTips?: string[]
+    quote?: { text?: string; authorOrSource?: string }
+  }
 }
 
 export function ExpandedPanel({
@@ -38,6 +43,7 @@ export function ExpandedPanel({
   feedbackState = null,
   onLike,
   onDislike,
+  energyInsights,
 }: ExpandedPanelProps) {
   const [hasHeroImageError, setHasHeroImageError] = useState(false)
 
@@ -46,6 +52,9 @@ export function ExpandedPanel({
   }, [heroImageUrl])
 
   const shouldShowHeroImage = Boolean(heroImageUrl && !hasHeroImageError)
+  const showEnergyInsights = Boolean(
+    energyInsights && (energyInsights.energyCurve?.length || energyInsights.wellnessTips?.length || energyInsights.quote?.text),
+  )
 
   return (
     <div
@@ -104,25 +113,90 @@ export function ExpandedPanel({
         className="dayger-scroll flex-1 space-y-6 overflow-y-auto px-8 py-6"
         style={{ ['--scroll-accent' as string]: accent }}
       >
-        <div
-          className="flex aspect-square max-h-[340px] w-full items-center justify-center overflow-hidden rounded-2xl border-2 text-8xl"
-          style={{
-            borderColor: `${accent}AA`,
-            background: `linear-gradient(145deg, ${accent}1A 0%, ${accent}0D 100%)`,
-            color: accent,
-          }}
-        >
-          {shouldShowHeroImage ? (
-            <img
-              src={heroImageUrl ?? undefined}
-              alt={heroImageAlt ?? `${label} cover art`}
-              className="h-full w-full object-cover"
-              onError={() => setHasHeroImageError(true)}
-            />
-          ) : (
-            icon
-          )}
-        </div>
+        {/* Hero block — replaced by energy graph when curve data is available */}
+        {showEnergyInsights && energyInsights?.energyCurve && energyInsights.energyCurve.length > 1 ? (
+          <div
+            className="w-full overflow-hidden rounded-2xl border-2 p-5"
+            style={{
+              borderColor: `${accent}AA`,
+              background: `linear-gradient(145deg, ${accent}1A 0%, ${accent}0D 100%)`,
+            }}
+          >
+            <p className="font-body text-xs font-bold uppercase tracking-[0.14em]" style={{ color: accent }}>
+              Energy Curve Today
+            </p>
+            <svg viewBox="0 0 320 90" className="mt-3 h-28 w-full">
+              <path
+                d={buildEnergyPath(energyInsights.energyCurve)}
+                fill="none"
+                stroke={accent}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        ) : (
+          <div
+            className="flex aspect-square max-h-[340px] w-full items-center justify-center overflow-hidden rounded-2xl border-2 text-8xl"
+            style={{
+              borderColor: `${accent}AA`,
+              background: `linear-gradient(145deg, ${accent}1A 0%, ${accent}0D 100%)`,
+              color: accent,
+            }}
+          >
+            {shouldShowHeroImage ? (
+              <img
+                src={heroImageUrl ?? undefined}
+                alt={heroImageAlt ?? `${label} cover art`}
+                className="h-full w-full object-cover"
+                onError={() => setHasHeroImageError(true)}
+              />
+            ) : (
+              icon
+            )}
+          </div>
+        )}
+
+        {/* Quote — shown prominently right after the graph for energy */}
+        {showEnergyInsights && energyInsights?.quote?.text ? (
+          <div
+            className="rounded-2xl border-2 px-5 py-4"
+            style={{
+              borderColor: `${accent}55`,
+              background: `linear-gradient(135deg, ${accent}0F 0%, transparent 100%)`,
+            }}
+          >
+            <p className="font-display text-lg font-extrabold leading-snug tracking-[-0.02em] text-foreground">
+              "{energyInsights.quote.text}"
+            </p>
+            {energyInsights.quote.authorOrSource ? (
+              <p className="mt-2 font-body text-xs font-bold uppercase tracking-[0.14em]" style={{ color: accent }}>
+                — {energyInsights.quote.authorOrSource}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Wellness checklist — above fields */}
+        {showEnergyInsights && energyInsights?.wellnessTips && energyInsights.wellnessTips.length > 0 ? (
+          <div className="rounded-xl border border-border bg-muted/40 px-4 py-4">
+            <p className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/65">Wellness Checklist</p>
+            <ul className="mt-3 space-y-2">
+              {energyInsights.wellnessTips.map((tip, index) => (
+                <li key={tip} className="flex items-start gap-2 font-body text-sm text-foreground/85">
+                  <span
+                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                    style={{ backgroundColor: `${accent}33`, color: accent }}
+                  >
+                    {index + 1}
+                  </span>
+                  {tip}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {fields.map((field) => (
           <motion.div
@@ -138,8 +212,9 @@ export function ExpandedPanel({
           </motion.div>
         ))}
 
-        <div className="space-y-3">
-          {actions.map((action) => {
+        {actions.length > 0 ? (
+          <div className="space-y-3">
+            {actions.map((action) => {
             const actionLabel = typeof action === 'string' ? action : action.label
             const actionHref = typeof action === 'string' ? undefined : action.href
 
@@ -170,8 +245,9 @@ export function ExpandedPanel({
                 {actionLabel}
               </button>
             )
-          })}
-        </div>
+            })}
+          </div>
+        ) : null}
       </div>
 
       <footer className="border-t border-border px-8 py-4">
@@ -179,4 +255,20 @@ export function ExpandedPanel({
       </footer>
     </div>
   )
+}
+
+function buildEnergyPath(points: Array<{ timeLabel: string; value: number }>): string {
+  const width = 320
+  const height = 84
+  const minY = 30
+  const maxY = 100
+
+  return points
+    .map((point, index) => {
+      const x = points.length === 1 ? 0 : (index / (points.length - 1)) * width
+      const normalized = (Math.max(minY, Math.min(maxY, point.value)) - minY) / (maxY - minY)
+      const y = height - normalized * height
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
+    })
+    .join(' ')
 }

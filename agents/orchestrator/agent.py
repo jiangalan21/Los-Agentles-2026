@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime
 from uuid import uuid4
 import json
+import time
 
 import requests
 from openai import OpenAI
@@ -63,6 +64,7 @@ class OrchestratorRunRequest(Model):
     request_id: Optional[str] = None
     prompt: str
     user_context: dict
+    day_context: Optional[dict] = None
 
 
 class OrchestratorRunResponse(Model):
@@ -93,6 +95,38 @@ _MUSIC_FALLBACK: dict = {
     ],
 }
 
+_ENERGY_FALLBACK: dict = {
+    "headlineValue": "68% charged",
+    "coachSummary": "You are moving solid. Keep the vibe steady and protect your focus window.",
+    "wellnessTips": [
+        "Hydrate now, then again in 45 minutes.",
+        "Take one 5-minute reset walk before your first heavy task.",
+        "Stack your hardest task before noon while momentum is high.",
+    ],
+    "energyWindows": {
+        "peakStart": "10:00 AM",
+        "peakEnd": "12:00 PM",
+        "dipStart": "2:30 PM",
+        "dipEnd": "4:00 PM",
+    },
+    "energyCurve": [
+        {"timeLabel": "7:00 AM", "value": 42},
+        {"timeLabel": "9:00 AM", "value": 63},
+        {"timeLabel": "11:00 AM", "value": 80},
+        {"timeLabel": "1:00 PM", "value": 71},
+        {"timeLabel": "3:00 PM", "value": 52},
+        {"timeLabel": "6:00 PM", "value": 60},
+    ],
+    "quote": {
+        "text": "Small wins stack. Keep your standards high and your self-talk higher.",
+        "authorOrSource": "Morning Coach",
+    },
+    "value": "68% charged",
+    "detail": "Supportive momentum plan",
+    "previewData": "Peak around late morning, dip mid-afternoon. Stay hydrated and keep the vibe up.",
+    "toneTag": "supportive-frat-bro-therapist",
+}
+
 
 def _http_post(url: str, payload: dict) -> dict:
     resp = requests.post(url, json=payload, timeout=20)
@@ -100,7 +134,26 @@ def _http_post(url: str, payload: dict) -> dict:
     return resp.json()
 
 
+def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        line = json.dumps({
+            "sessionId": "244467",
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        })
+        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "debug-244467.log"))
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except Exception:
+        pass
+
+
 async def _run_pipeline(req: OrchestratorRunRequest) -> None:
+    run_id = f"run-{req.session_id}"
     parsed = parse_user_input(req.prompt)
     location = req.user_context.get("location") or parsed.location_hint or "Los Angeles"
 
@@ -139,6 +192,47 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
         print(f"[orchestrator] Music agent error: {e} — using fallback")
         music_data = dict(_MUSIC_FALLBACK)
 
+    energy_payload: dict = {
+        "prompt": req.prompt,
+        "mood": parsed.mood,
+        "energy_level": (req.day_context or {}).get("energy_level"),
+        "wake_time": (req.day_context or {}).get("wake_time"),
+        "events": (req.day_context or {}).get("events", []),
+        "location": req.user_context.get("location"),
+        "morning_focus": req.user_context.get("morning_focus", ""),
+    }
+    if parsed.stress_level:
+        energy_payload["stress_level"] = parsed.stress_level
+    if parsed.schedule_notes:
+        energy_payload["schedule_notes"] = parsed.schedule_notes
+
+    try:
+        # region agent log
+        _debug_log(run_id, "H1_H2", "agents/orchestrator/agent.py:_run_pipeline:beforeEnergyCall", "Calling energy agent", {
+            "sessionId": req.session_id,
+            "requestId": req.request_id,
+            "hasWakeTime": bool((req.day_context or {}).get("wake_time")),
+            "energyLevel": (req.day_context or {}).get("energy_level"),
+        })
+        # endregion
+        energy_data = await asyncio.to_thread(_http_post, "http://localhost:8005/run", energy_payload)
+        # region agent log
+        _debug_log(run_id, "H1", "agents/orchestrator/agent.py:_run_pipeline:energySuccess", "Energy agent returned success", {
+            "sessionId": req.session_id,
+            "keys": sorted(list(energy_data.keys())) if isinstance(energy_data, dict) else [],
+            "errorField": energy_data.get("error") if isinstance(energy_data, dict) else None,
+        })
+        # endregion
+    except Exception as e:
+        print(f"[orchestrator] Energy agent error: {e} — using fallback")
+        energy_data = dict(_ENERGY_FALLBACK)
+        # region agent log
+        _debug_log(run_id, "H1", "agents/orchestrator/agent.py:_run_pipeline:energyFallback", "Energy agent failed, fallback used", {
+            "sessionId": req.session_id,
+            "error": str(e),
+        })
+        # endregion
+
     weather_card = {
         "value": f"{weather_raw.get('temperature_f', 68)}°F",
         "detail": f"{weather_raw.get('condition', 'Clear')} · {weather_raw.get('description', 'mild conditions')}",
@@ -156,10 +250,18 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
         "agents": [
             {"agentName": "weather", "output": weather_card},
             {"agentName": "music", "output": music_data},
+            {"agentName": "energy", "output": energy_data},
         ],
     }
 
     try:
+        # region agent log
+        _debug_log(run_id, "H3_H4", "agents/orchestrator/agent.py:_run_pipeline:beforeCallback", "Posting callback to backend", {
+            "sessionId": req.session_id,
+            "agentNames": [agent["agentName"] for agent in callback_payload["agents"]],
+            "energyErrorField": energy_data.get("error") if isinstance(energy_data, dict) else None,
+        })
+        # endregion
         await asyncio.to_thread(_http_post, "http://localhost:3001/internal/results", callback_payload)
         print(f"[orchestrator] Callback posted for session {req.session_id}")
     except Exception as e:

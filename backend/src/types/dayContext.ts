@@ -25,6 +25,7 @@ export interface DayContext {
   prompt: string
   mood: string
   energyLevel: number // 1–10
+  wakeTime?: string | null
   events: string[]
   location: Location
   preferences: UserPreferences

@@ -17,6 +17,32 @@ export type SessionOutput = {
   createdAt: string
 }
 
+export type EnergyCurvePoint = {
+  timeLabel: string
+  value: number
+}
+
+export type EnergyAgentOutput = {
+  value?: string
+  detail?: string
+  previewData?: string
+  headlineValue?: string
+  coachSummary?: string
+  wellnessTips?: string[]
+  energyWindows?: {
+    peakStart?: string
+    peakEnd?: string
+    dipStart?: string
+    dipEnd?: string
+  }
+  energyCurve?: EnergyCurvePoint[]
+  quote?: {
+    text?: string
+    authorOrSource?: string
+  }
+  toneTag?: string
+}
+
 export type SessionPayload = {
   session: {
     id: string
@@ -121,8 +147,8 @@ export async function saveProfile(userKey: string, profile: ProfilePayload): Pro
 export async function regenerateMusicForSession(
   userKey: string,
   sessionId: string,
-): Promise<{ ok: boolean; output: AgentOutput['output'] }> {
-  return request<{ ok: boolean; output: AgentOutput['output'] }>(`/session/${sessionId}/regenerate/music`, {
+): Promise<{ ok: boolean; output: SessionOutput['output'] }> {
+  return request<{ ok: boolean; output: SessionOutput['output'] }>(`/session/${sessionId}/regenerate/music`, {
     method: 'POST',
     userKey,
   })
