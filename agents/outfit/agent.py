@@ -1,7 +1,9 @@
+import asyncio
 import json
 import os
 import sys
 from datetime import datetime, timezone
+from urllib.parse import urlparse, urlunparse, urlencode, parse_qs
 from uuid import uuid4
 from typing import Optional
 
@@ -27,7 +29,17 @@ load_dotenv()
 
 OUTFIT_AGENT_SEED = os.getenv("OUTFIT_AGENT_SEED")
 ASI_URL = os.getenv("ASI_API_URL", "https://api.asi1.ai/v1/chat/completions")
-ASI_API_KEY = os.getenv("ASI_API_KEY")
+ASI_ONE_API_KEY = os.getenv("ASI_ONE_API_KEY")
+_PSYCOPG2_UNSUPPORTED_PARAMS = {"pgbouncer", "connection_limit"}
+
+def _clean_db_url(url: str) -> str:
+    """Strip connection string params that psycopg2 doesn't recognise (e.g. Supabase PgBouncer params)."""
+    parsed = urlparse(url)
+    params = {k: v[0] for k, v in parse_qs(parsed.query, keep_blank_values=True).items()
+              if k not in _PSYCOPG2_UNSUPPORTED_PARAMS}
+    return urlunparse(parsed._replace(query=urlencode(params)))
+
+DATABASE_URL = _clean_db_url(os.getenv("DATABASE_URL", "")) or None
 
 agent = Agent(
     name="outfit-agent",
@@ -42,17 +54,128 @@ orchestrator_proto = Protocol(name="orchestrator-outfit", version="0.1.0")
 
 
 # ---------------------------------------------------------------------------
-# Clothing database (placeholder)
+# Temperature classification
 # ---------------------------------------------------------------------------
 
-def query_clothing_db(_context: EnrichedContext) -> list[dict]:
+# Maps weather temperature (°F) → TempRange enum value used in clothing_items
+def classify_temp(temp_f: Optional[float]) -> str:
+    if temp_f is None:
+        return "room"
+    if temp_f >= 85:
+        return "hot"
+    if temp_f >= 65:
+        return "warm"
+    if temp_f >= 50:
+        return "room"
+    if temp_f >= 35:
+        return "cool"
+    return "cold"
+
+
+# Include adjacent buckets so thin wardrobes still return candidates
+TEMP_NEIGHBORS: dict[str, list[str]] = {
+    "hot":  ["hot", "warm"],
+    "warm": ["warm", "hot", "room"],
+    "room": ["room", "warm", "cool"],
+    "cool": ["cool", "room", "cold"],
+    "cold": ["cold", "cool"],
+}
+
+ARTICLES = ["top", "bottom", "shoes", "outer"]
+MAX_CANDIDATES_PER_ARTICLE = 5
+
+
+# ---------------------------------------------------------------------------
+# Clothing database query
+# ---------------------------------------------------------------------------
+
+def _fetch_candidates(temp_bucket: str, style_hint: Optional[list]) -> list[dict]:
     """
-    Placeholder: query a clothing DB for candidate pieces filtered by weather/style context.
-    Returns a list of clothing items with schema:
-      { id, name, article, color_tone, temp, style, color, brightness, keywords }
+    Blocking DB query — run in a thread.
+    Fetches up to MAX_CANDIDATES_PER_ARTICLE items per article type
+    that are appropriate for the given temperature bucket.
     """
-    # TODO: implement real DB query against the clothing table
-    return []
+    try:
+        import psycopg2
+        import psycopg2.extras
+    except ImportError:
+        print("[outfit] psycopg2 not installed — skipping DB query")
+        return []
+
+    if not DATABASE_URL:
+        print("[outfit] DATABASE_URL not set — skipping DB query")
+        return []
+
+    temp_values = TEMP_NEIGHBORS[temp_bucket]
+
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Fetch candidates ordered so style-matching items surface first,
+        # then random within the remainder for variety across repeated calls.
+        if style_hint:
+            # Convert each style string to a %pattern% for ILIKE matching,
+            # then promote any item whose style matches at least one of them.
+            style_patterns = [f"%{s}%" for s in style_hint]
+            cur.execute(
+                """
+                SELECT id, name, article, color_tone, temp, style, color, brightness, keywords
+                FROM clothing_items
+                WHERE temp = ANY(%s::"TempRange"[])
+                ORDER BY article,
+                         CASE WHEN EXISTS (
+                             SELECT 1 FROM unnest(%s::text[]) AS s(v)
+                             WHERE style ILIKE s.v
+                         ) THEN 0 ELSE 1 END,
+                         random()
+                """,
+                (temp_values, style_patterns),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, name, article, color_tone, temp, style, color, brightness, keywords
+                FROM clothing_items
+                WHERE temp = ANY(%s::"TempRange"[])
+                ORDER BY article, random()
+                """,
+                (temp_values,),
+            )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"[outfit] DB error: {e}")
+        return []
+
+    # Group by article, cap at MAX_CANDIDATES_PER_ARTICLE each
+    grouped: dict[str, list[dict]] = {a: [] for a in ARTICLES}
+    for row in rows:
+        article = row["article"]
+        if article in grouped and len(grouped[article]) < MAX_CANDIDATES_PER_ARTICLE:
+            grouped[article].append({
+                "id":         row["id"],
+                "name":       row["name"],
+                "article":    row["article"],
+                "color_tone": row["color_tone"],
+                "temp":       row["temp"],
+                "style":      row["style"],
+                "color":      row["color"],
+                "brightness": row["brightness"],
+                "keywords":   row["keywords"],
+            })
+
+    # Flatten back to a list
+    return [item for items in grouped.values() for item in items]
+
+
+async def query_clothing_db(context: EnrichedContext) -> list[dict]:
+    weather = context.weather or {}
+    temp_f = weather.get("temperature_f")
+    temp_bucket = classify_temp(temp_f)
+    style_hint = context.user_profile.clothing_style
+    return await asyncio.to_thread(_fetch_candidates, temp_bucket, style_hint)
 
 
 # ---------------------------------------------------------------------------
@@ -60,89 +183,126 @@ def query_clothing_db(_context: EnrichedContext) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 OUTFIT_SYSTEM_PROMPT = """
-You are a personal stylist building a coherent outfit recommendation.
-You receive context about the user's day (weather, mood, schedule, style preferences) and
-a list of available clothing pieces from their wardrobe.
+You are a personal stylist building a morning outfit recommendation.
 
-Return a JSON object with exactly this shape:
-{
-  "top":       { "name": "<string>", "reason": "<string>" },
-  "bottom":    { "name": "<string>", "reason": "<string>" },
-  "shoes":     { "name": "<string>", "reason": "<string>" },
-  "outer":     { "name": "<string>", "reason": "<string>" } | null,
-  "summary":   "<1-2 sentence outfit description for the user>"
-}
+Priority order for your reasoning:
+1. USER SIGNALS (most important): mood, stress level, schedule, and style preference.
+   A stressed student with an exam needs something that feels put-together and calm.
+   A relaxed day off calls for something comfortable. Match the emotional context first.
+2. STYLE PREFERENCE: honour the user's preferred aesthetic when candidates support it.
+3. WEATHER (constraint, not focus): use weather only to rule out impractical choices
+   (e.g. no shorts in freezing weather). Do not let weather dominate the recommendation
+   if the user's context points clearly in a style direction.
+4. COHERENCE: colors, tones, and style across all pieces should work together.
 
 Rules:
-- outer is null when weather does not require an extra layer.
-- Each piece must be weather-appropriate and internally consistent (color, style).
-- If the wardrobe list is empty, suggest generic pieces grounded in the weather and mood.
-- Return ONLY valid JSON, no extra text.
+- top, bottom, and shoes are always required.
+- outer is required only when weather is cold, cool, or rainy.
+- You MUST pick from the provided candidates and include each item's `id`.
+- If a slot has no candidates, invent a generic piece and set item_id to null.
+- Your `reason` for each piece should reference the user's mood/schedule, not just the weather.
+
+Return a JSON object with EXACTLY this shape and no other text:
+{
+  "top":    { "item_id": "<uuid or null>", "name": "<string>", "reason": "<string>" },
+  "bottom": { "item_id": "<uuid or null>", "name": "<string>", "reason": "<string>" },
+  "shoes":  { "item_id": "<uuid or null>", "name": "<string>", "reason": "<string>" },
+  "outer":  { "item_id": "<uuid or null>", "name": "<string>", "reason": "<string>" } or null,
+  "summary": "<1-2 sentences describing the full outfit and why it fits the user's day>"
+}
 """
 
 
-def build_outfit_prompt(context: EnrichedContext, wardrobe: list[dict]) -> str:
+def build_outfit_prompt(context: EnrichedContext, candidates: list[dict]) -> str:
     weather = context.weather or {}
     parsed = context.parsed_input
     profile = context.user_profile
 
-    parts = []
+    # --- Context block (user signals first, weather last as a constraint) ---
+    ctx_lines = []
+
+    if parsed.mood:
+        ctx_lines.append(f"Mood: {parsed.mood}")
+    if parsed.stress_level:
+        ctx_lines.append(f"Stress level: {parsed.stress_level}")
+    if parsed.schedule_notes:
+        ctx_lines.append(f"Schedule: {parsed.schedule_notes}")
+    if profile.clothing_style:
+        ctx_lines.append(f"Preferred style: {', '.join(profile.clothing_style)}")
+    if parsed.weather_feel:
+        ctx_lines.append(f"User describes weather as: {parsed.weather_feel}")
 
     if weather:
-        parts.append(
-            f"Weather: {weather.get('condition', 'unknown')}, "
-            f"{weather.get('temperature_f', '?')}°F, feels like {weather.get('feels_like_f', '?')}°F. "
+        ctx_lines.append(
+            f"Weather (constraint): {weather.get('condition', 'unknown')}, "
+            f"{weather.get('temperature_f', '?')}°F "
+            f"(feels like {weather.get('feels_like_f', '?')}°F). "
             f"{weather.get('description', '')}"
         )
     else:
-        parts.append("Weather: unknown — assume mild conditions.")
+        ctx_lines.append("Weather: unknown — assume mild, comfortable conditions.")
 
-    if parsed.mood:
-        parts.append(f"Mood: {parsed.mood}")
-    if parsed.stress_level:
-        parts.append(f"Stress level: {parsed.stress_level}")
-    if parsed.schedule_notes:
-        parts.append(f"Schedule: {parsed.schedule_notes}")
-    if parsed.weather_feel:
-        parts.append(f"User says it feels: {parsed.weather_feel}")
-    if profile.clothing_style:
-        parts.append(f"Preferred style: {profile.clothing_style}")
+    context_block = "\n".join(ctx_lines)
 
-    context_block = "\n".join(parts)
+    # --- Wardrobe candidates block ---
+    if candidates:
+        # Group by article for readability in the prompt
+        grouped: dict[str, list[dict]] = {a: [] for a in ARTICLES}
+        for item in candidates:
+            if item["article"] in grouped:
+                grouped[item["article"]].append(item)
 
-    if wardrobe:
-        wardrobe_block = json.dumps(wardrobe, indent=2)
+        wardrobe_parts = []
+        for article in ARTICLES:
+            items = grouped[article]
+            if items:
+                wardrobe_parts.append(f"\n{article.upper()} options:")
+                for item in items:
+                    kw = ", ".join(item.get("keywords") or [])
+                    wardrobe_parts.append(
+                        f"  - id={item['id']} | {item['name']} "
+                        f"| color: {item['color']} ({item['color_tone']}, {item['brightness']}) "
+                        f"| style: {item['style']} | temp: {item['temp']}"
+                        + (f" | keywords: {kw}" if kw else "")
+                    )
+        wardrobe_block = "\n".join(wardrobe_parts)
     else:
-        wardrobe_block = "No wardrobe data available — suggest generic pieces."
+        wardrobe_block = "No wardrobe data available — generate a generic weather-appropriate outfit."
 
     return (
-        f"Context:\n{context_block}\n\n"
-        f"Available wardrobe pieces:\n{wardrobe_block}\n\n"
-        "Build an outfit."
+        f"User context:\n{context_block}\n\n"
+        f"Available wardrobe candidates:{wardrobe_block}\n\n"
+        "Select an outfit."
     )
 
 
 def call_llm(prompt: str) -> Optional[dict]:
-    if not ASI_API_KEY:
+    if not ASI_ONE_API_KEY:
+        print("[outfit] ASI_API_KEY not set")
         return None
     try:
         resp = requests.post(
             ASI_URL,
-            headers={"Authorization": f"Bearer {ASI_API_KEY}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {ASI_ONE_API_KEY}", "Content-Type": "application/json"},
             json={
                 "model": "asi1-mini",
                 "messages": [
                     {"role": "system", "content": OUTFIT_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                "max_tokens": 512,
+                "max_tokens": 600,
                 "temperature": 0.7,
             },
             timeout=15,
         )
         resp.raise_for_status()
         raw = resp.json()["choices"][0]["message"]["content"].strip()
-        return json.loads(raw)
+        # Strip markdown code fences if the model wraps the JSON
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        return json.loads(raw.strip())
     except Exception as e:
         print(f"[outfit] LLM error: {e}")
         return None
@@ -153,17 +313,17 @@ def call_llm(prompt: str) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 FALLBACK_CARD = {
-    "top":     {"name": "Plain white t-shirt", "reason": "Neutral, weather-appropriate base layer."},
-    "bottom":  {"name": "Dark jeans", "reason": "Versatile and suitable for most conditions."},
-    "shoes":   {"name": "White sneakers", "reason": "Comfortable and pairs with everything."},
+    "top":     {"item_id": None, "name": "Plain white t-shirt",  "reason": "Neutral, weather-appropriate base layer."},
+    "bottom":  {"item_id": None, "name": "Dark jeans",           "reason": "Versatile for most conditions."},
+    "shoes":   {"item_id": None, "name": "White sneakers",       "reason": "Comfortable, pairs with everything."},
     "outer":   None,
-    "summary": "A simple, weather-appropriate outfit — no wardrobe data or LLM response available.",
+    "summary": "A simple, weather-appropriate outfit — wardrobe data or LLM unavailable.",
 }
 
 
 async def generate_outfit_card(context: EnrichedContext) -> dict:
-    wardrobe = query_clothing_db(context)
-    prompt = build_outfit_prompt(context, wardrobe)
+    candidates = await query_clothing_db(context)
+    prompt = build_outfit_prompt(context, candidates)
     card = call_llm(prompt)
     if card is None:
         return FALLBACK_CARD
@@ -210,7 +370,7 @@ async def handle_chat_message(ctx: Context, sender: str, msg: ChatMessage) -> No
             acknowledged_msg_id=msg.msg_id,
         ),
     )
-    ctx.logger.info(f"[outfit] Direct chat from {sender} — outfit agent does not support free-form chat yet.")
+    ctx.logger.info(f"[outfit] Direct chat from {sender} — not supported in this agent.")
     await ctx.send(sender, ChatMessage(
         timestamp=datetime.now(timezone.utc),
         msg_id=uuid4(),

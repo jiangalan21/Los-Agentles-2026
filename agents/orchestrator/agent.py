@@ -124,15 +124,22 @@ def parse_user_input(raw_prompt: str) -> ParsedUserInput:
     """LLM call to convert a free-form morning prompt into ParsedUserInput."""
     try:
         r = client.chat.completions.create(
-            model="asi1",
+            model="asi1-mini",
             messages=[
                 {"role": "system", "content": PARSE_SYSTEM_PROMPT},
                 {"role": "user", "content": raw_prompt},
             ],
             max_tokens=512,
         )
-        parsed = json.loads(r.choices[0].message.content)
-    except Exception:
+        raw = r.choices[0].message.content.strip()
+        # Strip markdown code fences if the model wraps the JSON
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        parsed = json.loads(raw.strip())
+    except Exception as e:
+        print(f"[orchestrator] parse_user_input error: {e}")
         parsed = {}
     return ParsedUserInput(raw_prompt=raw_prompt, **parsed)
 
@@ -200,7 +207,7 @@ async def run_action_stage(ctx: Context, session_id: str):
             "No action agents connected yet. Parsed context:\n"
             + json.dumps(enriched.model_dump(), indent=2)
         )
-        await _send_final_reply(ctx, session_id, reply)
+        await _send_final_reply(ctx, session["sender"], reply)
         return
 
     for agent_key, address in ACTION_AGENT_ADDRESSES.items():
@@ -234,10 +241,7 @@ def _build_final_reply(session_id: str) -> str:
     return "\n".join(lines)
 
 
-async def _send_final_reply(ctx: Context, session_id: str, text: str):
-    sender = (_sessions.get(session_id) or {}).get("sender")
-    if not sender:
-        return
+async def _send_final_reply(ctx: Context, sender: str, text: str):
     await ctx.send(sender, ChatMessage(
         timestamp=datetime.utcnow(),
         msg_id=uuid4(),
@@ -319,8 +323,9 @@ async def handle_action_response(ctx: Context, _sender: str, msg: ActionAgentRes
 
     if session["action_expected"] == set(session["action_received"].keys()):
         ctx.logger.info(f"[ACTION STAGE] complete — sending final reply to user")
+        sender = session["sender"]
         reply = _build_final_reply(msg.session_id)
-        await _send_final_reply(ctx, msg.session_id, reply)
+        await _send_final_reply(ctx, sender, reply)
 
 
 dayger.include(protocol, publish_manifest=True)
