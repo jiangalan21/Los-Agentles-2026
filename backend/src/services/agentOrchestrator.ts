@@ -8,14 +8,6 @@ export async function orchestrateAgents(
 ): Promise<void> {
   const agentPayloads = [
     {
-      agentName: 'outfit',
-      output: {
-        value: 'Casual',
-        detail: 'Relaxed fit',
-        previewData: 'Vintage tee, straight jeans, and sneakers.',
-      },
-    },
-    {
       agentName: 'energy',
       output: {
         value: `${Math.max(55, dayContext.energyLevel * 10)}%`,

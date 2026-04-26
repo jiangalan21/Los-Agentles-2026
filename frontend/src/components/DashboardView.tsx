@@ -407,6 +407,30 @@ export function DashboardView() {
       }
     }
 
+    if (selectedCard.id === 'outfit') {
+      const outfitOutput = selectedCardOutput as (AgentOutput & {
+        items?: {
+          top?: { name: string; reason: string } | null
+          bottom?: { name: string; reason: string } | null
+          shoes?: { name: string; reason: string } | null
+          outer?: { name: string; reason: string } | null
+        }
+      }) | undefined
+
+      const items = outfitOutput?.items
+      const dynamicFields: Array<{ key: string; value: string }> = []
+      if (items?.top) dynamicFields.push({ key: 'Top', value: `${items.top.name} — ${items.top.reason}` })
+      if (items?.bottom) dynamicFields.push({ key: 'Bottom', value: `${items.bottom.name} — ${items.bottom.reason}` })
+      if (items?.shoes) dynamicFields.push({ key: 'Shoes', value: `${items.shoes.name} — ${items.shoes.reason}` })
+      if (items?.outer) dynamicFields.push({ key: 'Outer', value: `${items.outer.name} — ${items.outer.reason}` })
+
+      return {
+        ...selectedCard,
+        subtitle: outfitOutput?.previewData ?? selectedCard.previewData,
+        fields: dynamicFields.length > 0 ? dynamicFields : selectedCard.fields,
+      }
+    }
+
     if (selectedCard.id === 'music') {
       const musicOutput = selectedCardOutput
       const tracks = musicOutput?.tracks ?? []

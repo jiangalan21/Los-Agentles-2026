@@ -8,17 +8,9 @@ export async function getOrCreateUserByAnonKey(userKey: string): Promise<users> 
     throw new Error('userKey is required')
   }
 
-  const existingUser = await prisma.users.findUnique({
+  return prisma.users.upsert({
     where: { anon_key: normalizedKey },
-  })
-
-  if (existingUser) {
-    return existingUser
-  }
-
-  return prisma.users.create({
-    data: {
-      anon_key: normalizedKey,
-    },
+    update: {},
+    create: { anon_key: normalizedKey },
   })
 }

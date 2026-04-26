@@ -10,7 +10,7 @@ from typing import Optional
 import requests
 from dotenv import load_dotenv
 
-from uagents import Agent, Context, Protocol
+from uagents import Agent, Context, Protocol, Model
 from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement,
     ChatMessage,
@@ -381,6 +381,68 @@ async def handle_chat_message(ctx: Context, sender: str, msg: ChatMessage) -> No
 @chat_proto.on_message(ChatAcknowledgement)
 async def handle_ack(ctx: Context, sender: str, _msg: ChatAcknowledgement) -> None:
     ctx.logger.info(f"[outfit] Ack from {sender}")
+
+
+# ---------------------------------------------------------------------------
+# REST endpoint — called directly by the orchestrator pipeline
+# ---------------------------------------------------------------------------
+
+class OutfitRunRequest(Model):
+    temperature_f: Optional[float] = None
+    condition: Optional[str] = None
+    feels_like_f: Optional[float] = None
+    description: Optional[str] = None
+    mood: Optional[str] = None
+    stress_level: Optional[str] = None
+    schedule_notes: Optional[str] = None
+    style_profile: Optional[str] = None
+
+
+class OutfitRunResponse(Model):
+    top: Optional[dict] = None
+    bottom: Optional[dict] = None
+    shoes: Optional[dict] = None
+    outer: Optional[dict] = None
+    summary: Optional[str] = None
+    error: Optional[str] = None
+
+
+@agent.on_rest_post("/run", OutfitRunRequest, OutfitRunResponse)
+async def handle_rest_run(ctx: Context, req: OutfitRunRequest) -> OutfitRunResponse:
+    weather = {}
+    if req.temperature_f is not None:
+        weather["temperature_f"] = req.temperature_f
+    if req.condition:
+        weather["condition"] = req.condition
+    if req.feels_like_f is not None:
+        weather["feels_like_f"] = req.feels_like_f
+    if req.description:
+        weather["description"] = req.description
+
+    style_list = [s.strip() for s in req.style_profile.split(",")] if req.style_profile else None
+
+    from shared.models import ParsedUserInput, UserProfile
+    parsed = ParsedUserInput(
+        raw_prompt="",
+        mood=req.mood,
+        stress_level=req.stress_level,
+        schedule_notes=req.schedule_notes,
+    )
+    profile = UserProfile(user_id="rest", clothing_style=style_list)
+
+    context = EnrichedContext(
+        session_id="rest",
+        parsed_input=parsed,
+        user_profile=profile,
+        weather=weather if weather else None,
+    )
+
+    try:
+        card = await generate_outfit_card(context)
+        return OutfitRunResponse(**card)
+    except Exception as e:
+        ctx.logger.exception(f"[outfit] REST run error: {e}")
+        return OutfitRunResponse(**FALLBACK_CARD, error=str(e))
 
 
 # ---------------------------------------------------------------------------

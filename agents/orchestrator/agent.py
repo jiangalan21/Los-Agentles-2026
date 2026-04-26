@@ -89,6 +89,14 @@ _WEATHER_FALLBACK = {
     "narrative": "Weather service unavailable — assuming mild conditions.",
 }
 
+_OUTFIT_FALLBACK: dict = {
+    "top":     {"item_id": None, "name": "Plain white t-shirt",  "reason": "Neutral, weather-appropriate base layer."},
+    "bottom":  {"item_id": None, "name": "Dark jeans",           "reason": "Versatile for most conditions."},
+    "shoes":   {"item_id": None, "name": "White sneakers",       "reason": "Comfortable, pairs with everything."},
+    "outer":   None,
+    "summary": "A simple, weather-appropriate outfit.",
+}
+
 _MUSIC_FALLBACK: dict = {
     "value": "Morning Focus",
     "detail": "Calm · Steady · Instrumental",
@@ -119,6 +127,22 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
         print(f"[orchestrator] Weather agent error: {e} — using fallback")
         weather_raw = dict(_WEATHER_FALLBACK)
 
+    outfit_payload: dict = {
+        "temperature_f": weather_raw.get("temperature_f"),
+        "condition": weather_raw.get("condition"),
+        "feels_like_f": weather_raw.get("feels_like_f"),
+        "description": weather_raw.get("description"),
+    }
+    if parsed.mood:
+        outfit_payload["mood"] = parsed.mood
+    if parsed.stress_level:
+        outfit_payload["stress_level"] = parsed.stress_level
+    if parsed.schedule_notes:
+        outfit_payload["schedule_notes"] = parsed.schedule_notes
+    style_profile = req.user_context.get("style_profile")
+    if style_profile:
+        outfit_payload["style_profile"] = style_profile
+
     music_payload: dict = {}
     if parsed.mood:
         music_payload["mood"] = parsed.mood
@@ -142,11 +166,34 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
     if weather_raw.get("temperature_f") is not None:
         music_payload["temperature_f"] = weather_raw["temperature_f"]
 
-    try:
-        music_data = await asyncio.to_thread(_http_post, "http://localhost:8003/run", music_payload)
-    except Exception as e:
-        print(f"[orchestrator] Music agent error: {e} — using fallback")
+    outfit_data, music_data = await asyncio.gather(
+        asyncio.to_thread(_http_post, "http://localhost:8002/run", outfit_payload),
+        asyncio.to_thread(_http_post, "http://localhost:8003/run", music_payload),
+        return_exceptions=True,
+    )
+
+    if isinstance(outfit_data, Exception):
+        print(f"[orchestrator] Outfit agent error: {outfit_data} — using fallback")
+        outfit_data = dict(_OUTFIT_FALLBACK)
+    if isinstance(music_data, Exception):
+        print(f"[orchestrator] Music agent error: {music_data} — using fallback")
         music_data = dict(_MUSIC_FALLBACK)
+
+    # Transform outfit agent response {top/bottom/shoes/outer/summary} → card format {value/detail/previewData}
+    top_name = (outfit_data.get("top") or {}).get("name", "")
+    bottom_name = (outfit_data.get("bottom") or {}).get("name", "")
+    shoes_name = (outfit_data.get("shoes") or {}).get("name", "")
+    outer = outfit_data.get("outer")
+    outer_name = outer.get("name", "") if isinstance(outer, dict) else ""
+    summary = outfit_data.get("summary", "")
+    piece_names = [n for n in [top_name, bottom_name, shoes_name, outer_name] if n]
+    style_label = req.user_context.get("style_profile") or "Today's Look"
+    outfit_card = {
+        "value": style_label,
+        "detail": " · ".join(piece_names[:2]) if piece_names else "Curated outfit",
+        "previewData": summary or " · ".join(piece_names),
+        "items": {k: outfit_data.get(k) for k in ["top", "bottom", "shoes", "outer"]},
+    }
 
     weather_card = {
         "value": f"{weather_raw.get('temperature_f', 68)}°F",
@@ -164,6 +211,7 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
         "requestId": req.request_id,
         "agents": [
             {"agentName": "weather", "output": weather_card},
+            {"agentName": "outfit", "output": outfit_card},
             {"agentName": "music", "output": music_data},
         ],
     }
@@ -350,14 +398,21 @@ async def run_action_stage(ctx: Context, session_id: str):
 # Response aggregation & final reply
 # ---------------------------------------------------------------------------
 
-async def _push_to_backend(backend_session_id: str, cards: dict) -> None:
+async def _push_to_backend(backend_session_id: str, cards: dict, request_id: Optional[str] = None) -> None:
     """POST raw card JSON to the Express backend so the frontend can poll it."""
-    payload = {"session_id": backend_session_id, "outputs": cards}
+    payload = {
+        "sessionId": backend_session_id,
+        "requestId": request_id,
+        "agents": [
+            {"agentName": name, "output": card}
+            for name, card in cards.items()
+        ],
+    }
     headers = {"x-internal-key": INTERNAL_API_KEY, "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient() as http:
             r = await http.post(
-                f"{BACKEND_URL}/internal/agent-output",
+                f"{BACKEND_URL}/internal/results",
                 json=payload,
                 headers=headers,
                 timeout=10,
