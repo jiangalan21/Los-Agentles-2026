@@ -1,5 +1,6 @@
 import type { DayContext } from '../types/dayContext'
 import { prisma } from '../lib/prisma'
+import { fetchUCLAMenu } from './uclaDining'
 
 const PYTHON_ORCHESTRATOR_URL = process.env.PYTHON_ORCHESTRATOR_URL ?? 'http://localhost:8000/run'
 
@@ -8,24 +9,30 @@ export async function orchestrateAgents(
   dayContext: DayContext,
   requestId?: string
 ): Promise<void> {
-  // Pre-seed energy with a deterministic fallback so the card renders immediately.
+  // Pre-seed energy and meal with deterministic fallbacks so cards render immediately.
   // Status stays 'running' — Python will overwrite with LLM-generated output via /internal/results.
-  try {
-    await prisma.agent_outputs.create({
-      data: {
-        session_id: sessionId,
-        request_id: requestId ?? null,
-        agent_name: 'energy',
-        output: buildEnergyFallback(dayContext) as never,
-      },
-    })
-  } catch {
-    // Non-fatal — Python will still deliver the real output
+  const seedOutputs: Array<{ agent_name: string; output: Record<string, unknown> }> = [
+    { agent_name: 'energy', output: buildEnergyFallback(dayContext) },
+    { agent_name: 'meal', output: buildMealFallback() },
+  ]
+  for (const seed of seedOutputs) {
+    try {
+      await prisma.agent_outputs.create({
+        data: {
+          session_id: sessionId,
+          request_id: requestId ?? null,
+          agent_name: seed.agent_name,
+          output: seed.output as never,
+        },
+      })
+    } catch {
+      // Non-fatal — Python will still deliver the real output
+    }
   }
 
-  // weather, music, and energy are produced by Python and delivered via /internal/results callback.
+  // weather, music, energy, and meal are produced by Python and delivered via /internal/results callback.
   if (requestId) {
-    const asyncAgents = ['weather', 'outfit', 'music', 'energy']
+    const asyncAgents = ['weather', 'outfit', 'music', 'energy', 'meal']
     for (const agentName of asyncAgents) {
       await prisma.plan_request_agents.upsert({
         where: {
@@ -101,6 +108,41 @@ function buildEnergyFallback(dayContext: DayContext): Record<string, unknown> {
   }
 }
 
+function buildMealFallback(): Record<string, unknown> {
+  return {
+    value: "Today's UCLA Meal Plan",
+    detail: 'Campus-wide · Breakfast + Lunch + Dinner',
+    previewData: 'Curated dishes from multiple UCLA dining spots matched to your morning.',
+    meals: {
+      breakfast: {
+        dishes: [
+          { name: 'Scrambled Eggs', station: 'Grill', reason: 'High-protein morning fuel' },
+          { name: 'Oatmeal', station: 'Comfort', reason: 'Slow-release energy before class' },
+        ],
+      },
+      lunch: {
+        dishes: [
+          { name: 'Bruin Burger', station: 'Grill', reason: 'Satisfying midday protein' },
+          { name: 'Garden Salad', station: 'Salad Bar', reason: 'Light and energizing' },
+        ],
+      },
+      dinner: {
+        dishes: [
+          { name: 'Pasta Primavera', station: 'Pasta', reason: 'Carb recovery after a long day' },
+          { name: 'Roasted Vegetables', station: 'Vegan', reason: 'Micronutrient boost' },
+        ],
+      },
+    },
+    rationale: 'These dishes provide balanced macros aligned with a productive study day.',
+    dietFlags: ['balanced'],
+    sourceMeta: {
+      diningHall: 'UCLA Dining',
+      diningHalls: ['De Neve', 'Bruin Plate', 'Epicuria'],
+      serviceDate: new Date().toLocaleDateString(),
+    },
+  }
+}
+
 function addMinutes(base: Date, minutes: number): Date {
   return new Date(base.getTime() + minutes * 60_000)
 }
@@ -131,16 +173,20 @@ async function callPythonOrchestrator(
     music_genres: musicGenres,
     music_profile: profile?.musicProfile ?? '',
     dietary_profile: profile?.dietaryProfile ?? '',
+    food_preferences: profile?.foodPreferences ?? '',
     style_profile: profile?.styleProfile ?? '',
     music_liked_vibes: musicFeedback?.likedVibes ?? [],
     music_disliked_vibes: musicFeedback?.dislikedVibes ?? [],
   }
+
+  const uclaMenu = await fetchUCLAMenu().catch(() => null)
 
   const payload = {
     session_id: sessionId,
     request_id: requestId ?? null,
     prompt: dayContext.prompt,
     user_context,
+    ucla_menu_snapshot: uclaMenu ?? null,
     day_context: {
       mood: dayContext.mood,
       energy_level: dayContext.energyLevel,
@@ -170,7 +216,7 @@ async function callPythonOrchestrator(
     console.error('[orchestrator] Python orchestrator call failed:', err)
     if (requestId) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      const asyncAgents = ['weather', 'music', 'energy']
+      const asyncAgents = ['weather', 'outfit', 'music', 'energy', 'meal']
       await prisma.plan_request_agents.updateMany({
         where: {
           request_id: requestId,

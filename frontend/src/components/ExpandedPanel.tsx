@@ -4,13 +4,30 @@ import { PiPantsBold } from 'react-icons/pi'
 import { TbJacket, TbShoe } from 'react-icons/tb'
 import { ReactNode, useEffect, useState } from 'react'
 
+type MealDish = {
+  name: string
+  station: string
+  reason: string
+}
+
+type MealInsights = {
+  meals?: {
+    breakfast?: { dishes: MealDish[] }
+    lunch?: { dishes: MealDish[] }
+    dinner?: { dishes: MealDish[] }
+  }
+  rationale?: string
+  dietFlags?: string[]
+  sourceMeta?: { diningHall?: string; diningHalls?: string[]; serviceDate?: string }
+}
+
 type ExpandedPanelProps = {
   accent: string
   label: string
   title: string
   titleClassName?: string
   subtitle: string
-  layoutVariant?: 'default' | 'outfit'
+  layoutVariant?: 'default' | 'outfit' | 'meal' | 'custom'
   icon: ReactNode
   fields: Array<{ key: string; value: string }>
   actions: Array<string | { label: string; href?: string }>
@@ -27,6 +44,7 @@ type ExpandedPanelProps = {
     wellnessTips?: string[]
     quote?: { text?: string; authorOrSource?: string }
   }
+  mealInsights?: MealInsights
 }
 
 export function ExpandedPanel({
@@ -48,6 +66,7 @@ export function ExpandedPanel({
   onLike,
   onDislike,
   energyInsights,
+  mealInsights,
 }: ExpandedPanelProps) {
   const [hasHeroImageError, setHasHeroImageError] = useState(false)
 
@@ -57,9 +76,12 @@ export function ExpandedPanel({
 
   const shouldShowHeroImage = Boolean(heroImageUrl && !hasHeroImageError)
   const isOutfitLayout = layoutVariant === 'outfit'
+  const isMealLayout = layoutVariant === 'meal'
+  const isCustomLayout = layoutVariant === 'custom'
   const showEnergyInsights = Boolean(
     energyInsights && (energyInsights.energyCurve?.length || energyInsights.wellnessTips?.length || energyInsights.quote?.text),
   )
+  const showMealLayout = isMealLayout && Boolean(mealInsights?.meals)
 
   return (
     <div
@@ -76,12 +98,12 @@ export function ExpandedPanel({
             </p>
             <h2
               className={`mt-2 font-display font-extrabold leading-[0.95] tracking-[-0.04em] ${
-                titleClassName ?? (isOutfitLayout ? 'text-3xl xl:text-4xl' : 'text-6xl')
+                titleClassName ?? (isOutfitLayout ? 'text-3xl xl:text-4xl' : isMealLayout ? 'text-4xl whitespace-nowrap overflow-hidden text-ellipsis' : 'text-6xl')
               }`}
             >
               {title}
             </h2>
-            {!isOutfitLayout && subtitle ? <p className="mt-2 font-body text-base text-foreground/75">{subtitle}</p> : null}
+            {!isOutfitLayout && !isMealLayout && subtitle ? <p className="mt-2 font-body text-base text-foreground/75">{subtitle}</p> : null}
           </div>
 
           <button
@@ -121,7 +143,7 @@ export function ExpandedPanel({
         style={{ ['--scroll-accent' as string]: accent }}
       >
         {/* Hero block — replaced by energy graph when curve data is available */}
-        {!isOutfitLayout && showEnergyInsights && energyInsights?.energyCurve && energyInsights.energyCurve.length > 1 ? (
+        {!isOutfitLayout && !isCustomLayout && !isMealLayout && showEnergyInsights && energyInsights?.energyCurve && energyInsights.energyCurve.length > 1 ? (
           <div
             className="w-full overflow-hidden rounded-2xl border-2 p-5"
             style={{
@@ -143,7 +165,7 @@ export function ExpandedPanel({
               />
             </svg>
           </div>
-        ) : !isOutfitLayout ? (
+        ) : !isOutfitLayout && !isCustomLayout && !isMealLayout ? (
           <div
             className="flex aspect-square max-h-[340px] w-full items-center justify-center overflow-hidden rounded-2xl border-2 text-8xl"
             style={{
@@ -236,6 +258,99 @@ export function ExpandedPanel({
                 </motion.div>
               )
             })}
+          </div>
+        ) : showMealLayout ? (
+          <div className="space-y-4">
+            {(['breakfast', 'lunch', 'dinner'] as const).map((period) => {
+              const window = mealInsights?.meals?.[period]
+              if (!window?.dishes?.length) return null
+              const periodLocation = Array.from(new Set(window.dishes.map((dish) => dish.station).filter(Boolean))).join(' · ')
+              return (
+                <div key={period} className="rounded-xl border border-border bg-muted/40 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/65">{period}</p>
+                    {periodLocation ? (
+                      <div
+                        className="inline-flex items-center gap-2 rounded-full border px-2.5 py-1"
+                        style={{
+                          borderColor: `${accent}66`,
+                          backgroundColor: `${accent}14`,
+                        }}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: accent }} />
+                        <p className="font-body text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: accent }}>
+                          {periodLocation}
+                          {mealInsights?.sourceMeta?.serviceDate ? ` · ${mealInsights.sourceMeta.serviceDate}` : ''}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {window.dishes.map((dish) => (
+                      <motion.div
+                        key={dish.name}
+                        whileHover={{ borderColor: `${accent}99`, y: -1 }}
+                        transition={{ duration: 0.15, ease: 'easeOut' }}
+                        className="rounded-lg border border-border/60 bg-background/30 px-3 py-2.5"
+                      >
+                        <p className="font-display text-base font-extrabold leading-tight tracking-[-0.02em] text-foreground">{dish.name}</p>
+                        {dish.reason ? <p className="mt-1 font-body text-xs text-foreground/65">{dish.reason}</p> : null}
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+            {mealInsights?.dietFlags?.length ? (
+              <div className="flex flex-wrap gap-2">
+                {mealInsights.dietFlags.map((flag) => (
+                  <span
+                    key={flag}
+                    className="rounded-full px-3 py-1 font-body text-xs font-bold uppercase tracking-[0.12em]"
+                    style={{ backgroundColor: `${accent}22`, color: accent }}
+                  >
+                    {flag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : isCustomLayout ? (
+          <div className="space-y-3">
+            {fields.map((field) => (
+              (() => {
+                const formatterValue = field.value.toLowerCase()
+                const isFormatterField = field.key === 'Formatter'
+                const formatterBadgeClass =
+                  formatterValue.includes('asi')
+                    ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+                    : formatterValue.includes('deterministic')
+                      ? 'border-amber-400/40 bg-amber-500/15 text-amber-200'
+                      : 'border-slate-400/40 bg-slate-500/15 text-slate-200'
+
+                return (
+              <motion.div
+                key={field.key}
+                whileHover={{ borderColor: `${accent}99`, y: -2 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className="rounded-xl border border-border bg-muted/40 px-4 py-4"
+              >
+                <p className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/65">{field.key}</p>
+                {isFormatterField ? (
+                  <span
+                    className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 font-body text-[11px] font-bold uppercase tracking-[0.12em] ${formatterBadgeClass}`}
+                  >
+                    {field.value}
+                  </span>
+                ) : (
+                  <p className={`mt-2 font-body text-sm text-foreground whitespace-pre-wrap break-words ${field.key === 'Response' ? 'max-h-64 overflow-y-auto rounded-md border border-border/60 bg-background/30 p-3 break-all' : ''}`}>
+                    {field.value}
+                  </p>
+                )}
+              </motion.div>
+                )
+              })()
+            ))}
           </div>
         ) : (
           fields.map((field) => (

@@ -22,16 +22,18 @@ from shared.models import (
     UserProfile,
 )
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 ASI1_API_KEY = os.getenv("ASI1_API_KEY")
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")
-_endpoint = os.getenv("AGENT_ENDPOINT") or "http://localhost:8003/submit"
+_seed = os.getenv("MUSIC_AGENT_SEED") or os.getenv("AGENT_SEED", "music-agent-seed")
+_endpoint = os.getenv("MUSIC_AGENT_ENDPOINT") or os.getenv("AGENT_ENDPOINT") or "http://localhost:8003/submit"
+ORCHESTRATOR_AGENT_ADDRESS = os.getenv("ORCHESTRATOR_AGENT_ADDRESS", "").strip()
 
 agent = Agent(
     name="music-agent",
-    seed=os.getenv("AGENT_SEED", "music-agent-seed"),
+    seed=_seed,
     port=8003,
     endpoint=[_endpoint],
     mailbox=True,
@@ -215,17 +217,22 @@ agent.include(proto, publish_manifest=True)
 
 # ── Orchestrator protocol ─────────────────────────────────────────────────────
 
-orchestrator_proto = Protocol(name="orchestrator-music", version="0.1.0")
+orchestrator_proto = Protocol(name="orchestrator-pipeline", version="0.1.0")
 
 
 @orchestrator_proto.on_message(ActionAgentRequest)
 async def handle_action_request(ctx: Context, sender: str, msg: ActionAgentRequest) -> None:
     ctx.logger.info(f"[music] ActionAgentRequest received for session {msg.session_id}")
+    reply_target = ORCHESTRATOR_AGENT_ADDRESS or sender
+    if ORCHESTRATOR_AGENT_ADDRESS:
+        ctx.logger.info(f"[music] replying to configured ORCHESTRATOR_AGENT_ADDRESS: {reply_target}")
+    else:
+        ctx.logger.info(f"[music] replying to sender: {reply_target}")
 
     card_data, error = await asyncio.to_thread(_generate_playlist, msg)
 
     await ctx.send(
-        sender,
+        reply_target,
         ActionAgentResponse(
             session_id=msg.session_id,
             agent_name="music",

@@ -5,10 +5,13 @@ import { requireAnonUser } from '../middleware/anonAuth'
 import { orchestrateAgents } from '../services/agentOrchestrator'
 import { parsePrompt } from '../services/promptParser'
 import { buildUserContext } from '../services/userContext'
+import { checkCustomAgentCooldown, runCustomAgentAsync, validateCustomAgentInput } from '../services/customAgentRunner'
+import { fetchUCLAMenu } from '../services/uclaDining'
 
 const router = Router()
 const MUSIC_AGENT_URL = process.env.MUSIC_AGENT_URL ?? 'http://localhost:8003/run'
 const OUTFIT_AGENT_URL = process.env.OUTFIT_AGENT_URL ?? 'http://localhost:8002/run'
+const MEAL_AGENT_URL = process.env.MEAL_AGENT_URL ?? 'http://localhost:8006/run'
 
 // POST /session — create session and trigger prompt parsing
 router.post('/', requireAnonUser, async (req, res) => {
@@ -318,6 +321,189 @@ router.post('/:id/regenerate/outfit', requireAnonUser, async (req, res) => {
     console.error('[regenerate/outfit] error:', error)
     return res.status(500).json({
       error: 'outfit regeneration failed',
+      detail: error instanceof Error ? error.message : 'Unknown error',
+    })
+  }
+})
+
+// POST /session/:id/regenerate/meal — re-run meal agent for an existing session
+router.post('/:id/regenerate/meal', requireAnonUser, async (req, res) => {
+  const sessionId = req.params.id
+  const user = req.user
+  if (!sessionId || !user) return res.status(400).json({ error: 'session id is required' })
+
+  try {
+    const session = await prisma.sessions.findFirst({
+      where: { id: sessionId, user_id: user.id },
+      select: { id: true, request_id: true, prompt: true, day_context: true },
+    })
+    if (!session) return res.status(404).json({ error: 'session not found' })
+
+    const dayCtx = session.day_context as Record<string, unknown> | null
+    const userContext = (dayCtx?.userContext as Record<string, unknown> | undefined)?.profileSnapshot as Record<string, unknown> | undefined
+    const uclaMenu = await fetchUCLAMenu().catch(() => null)
+    const previousMealOutput = await prisma.agent_outputs.findFirst({
+      where: { session_id: sessionId, agent_name: 'meal' },
+      orderBy: { created_at: 'desc' },
+      select: { output: true },
+    })
+    const previousMeals = previousMealOutput?.output as
+      | { meals?: { breakfast?: { dishes?: Array<{ name?: string }> }; lunch?: { dishes?: Array<{ name?: string }> }; dinner?: { dishes?: Array<{ name?: string }> } } }
+      | undefined
+    const excludeDishes = [
+      ...(previousMeals?.meals?.breakfast?.dishes ?? []),
+      ...(previousMeals?.meals?.lunch?.dishes ?? []),
+      ...(previousMeals?.meals?.dinner?.dishes ?? []),
+    ]
+      .map((dish) => (typeof dish?.name === 'string' ? dish.name.trim() : ''))
+      .filter((name) => Boolean(name))
+
+    const mealPayload = {
+      prompt: session.prompt,
+      mood: typeof dayCtx?.mood === 'string' ? dayCtx.mood : null,
+      stress_level: null,
+      energy_level: typeof dayCtx?.energyLevel === 'number' ? dayCtx.energyLevel : null,
+      events: Array.isArray(dayCtx?.events) ? dayCtx.events : [],
+      morning_focus: typeof userContext?.morningFocus === 'string' ? userContext.morningFocus : '',
+      dietary_profile: typeof userContext?.dietaryProfile === 'string' ? userContext.dietaryProfile : '',
+      ucla_menu_snapshot: uclaMenu,
+      exclude_dishes: excludeDishes,
+    }
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30_000)
+    let mealData: unknown
+    try {
+      const agentRes = await fetch(MEAL_AGENT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mealPayload),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+      if (!agentRes.ok) throw new Error(`Meal agent returned ${agentRes.status}`)
+      mealData = await agentRes.json()
+    } catch (err) {
+      clearTimeout(timeoutId)
+      throw err
+    }
+
+    await prisma.agent_outputs.create({
+      data: {
+        session_id: sessionId,
+        request_id: session.request_id,
+        agent_name: 'meal',
+        output: mealData as never,
+      },
+    })
+
+    return res.json({ ok: true, output: mealData })
+  } catch (error) {
+    console.error('[regenerate/meal] error:', error)
+    return res.status(500).json({
+      error: 'meal regeneration failed',
+      detail: error instanceof Error ? error.message : 'Unknown error',
+    })
+  }
+})
+
+router.post('/:id/custom-agent/run', requireAnonUser, async (req, res) => {
+  const sessionId = req.params.id
+  const user = req.user
+  const agentAddress = String(req.body?.agentAddress ?? '').trim()
+  const prompt = String(req.body?.prompt ?? '').trim()
+
+  if (!sessionId || !user) {
+    return res.status(400).json({ error: 'session id is required' })
+  }
+
+  const validation = validateCustomAgentInput(agentAddress, prompt)
+  if (!validation.ok) {
+    return res.status(400).json({ error: validation.error })
+  }
+
+  const cooldown = checkCustomAgentCooldown(user.id)
+  if (!cooldown.ok) {
+    return res.status(429).json({ error: `please wait before running again`, retryAfterMs: cooldown.retryAfterMs })
+  }
+
+  try {
+    const session = await prisma.sessions.findFirst({
+      where: { id: sessionId, user_id: user.id },
+      select: { id: true, request_id: true, day_context: true },
+    })
+    if (!session) return res.status(404).json({ error: 'session not found' })
+
+    const effectiveRequestId = session.request_id ?? null
+    if (effectiveRequestId) {
+      await prisma.plan_request_agents.upsert({
+        where: { request_id_agent_name: { request_id: effectiveRequestId, agent_name: 'custom_agent' } },
+        create: {
+          request_id: effectiveRequestId,
+          user_id: user.id,
+          agent_name: 'custom_agent',
+          status: 'running',
+          attempt_count: 1,
+          last_error: null,
+        },
+        update: {
+          status: 'running',
+          last_error: null,
+          completed_at: null,
+          attempt_count: { increment: 1 },
+        },
+      })
+
+      await prisma.plan_requests.update({
+        where: { id: effectiveRequestId },
+        data: {
+          status: 'running',
+          completed_at: null,
+          started_at: new Date(),
+        },
+      })
+    }
+
+    const dayContext = (session.day_context as Record<string, unknown> | null) ?? {}
+    await prisma.sessions.update({
+      where: { id: session.id },
+      data: {
+        day_context: {
+          ...dayContext,
+          customAgentConfig: {
+            agentAddress,
+            submittedPrompt: prompt,
+          },
+        } as Prisma.InputJsonValue,
+      },
+    })
+
+    void runCustomAgentAsync({
+      sessionId: session.id,
+      requestId: effectiveRequestId,
+      userId: user.id,
+      agentAddress,
+      prompt,
+    }).catch(async (error) => {
+      if (!effectiveRequestId) return
+      await prisma.plan_request_agents.updateMany({
+        where: {
+          request_id: effectiveRequestId,
+          agent_name: 'custom_agent',
+          status: { in: ['pending', 'running'] },
+        },
+        data: {
+          status: 'failed',
+          last_error: error instanceof Error ? error.message : 'Unknown error',
+        },
+      })
+    })
+
+    return res.json({ ok: true, requestId: effectiveRequestId })
+  } catch (error) {
+    console.error('[custom-agent/run] error:', error)
+    return res.status(500).json({
+      error: 'custom agent run failed',
       detail: error instanceof Error ? error.message : 'Unknown error',
     })
   }

@@ -103,6 +103,7 @@ export async function buildUserContext(userId: string): Promise<UserContextSumma
       morningFocus: user?.morning_focus ?? '',
       routineNotes: user?.routine_notes ?? '',
       dietaryProfile: user?.dietary_profile ?? '',
+      foodPreferences: user?.food_preferences ?? '',
       musicProfile: user?.music_profile ?? '',
       styleProfile: user?.style_profile ?? '',
     },

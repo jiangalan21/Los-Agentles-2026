@@ -3,6 +3,8 @@ export type UserProfile = {
   location: string
   morningFocus: string
   routineNotes: string
+  dietaryRestrictions: string
+  foodPreferences: string
   musicPreferences: string
   stylePreferences: string
   wakeTime: string       // HH:MM — anchors the energy curve
@@ -16,6 +18,8 @@ const DEFAULT_PROFILE: UserProfile = {
   location: 'Los Angeles',
   morningFocus: '',
   routineNotes: '',
+  dietaryRestrictions: '',
+  foodPreferences: '',
   musicPreferences: 'pop, lo-fi',
   stylePreferences: 'casual, layered',
   wakeTime: '07:00',
@@ -31,7 +35,6 @@ export function getUserProfile(): UserProfile {
 
   try {
     const parsed = JSON.parse(stored) as Partial<UserProfile> & { dietaryPreferences?: string }
-    // Drop any legacy dietaryPreferences key
     const { dietaryPreferences: _dropped, ...rest } = parsed
     void _dropped
     return { ...DEFAULT_PROFILE, ...rest }
@@ -60,5 +63,7 @@ export function buildPromptFromProfile(profile: UserProfile): string {
   if (profile.energyBaseline) parts.push(`Energy baseline: ${profile.energyBaseline}/10`)
   if (profile.musicPreferences) parts.push(`Music preferences: ${profile.musicPreferences}`)
   if (profile.stylePreferences) parts.push(`Style preferences: ${profile.stylePreferences}`)
+  if (profile.foodPreferences) parts.push(`Food preferences: ${profile.foodPreferences}`)
+  if (profile.dietaryRestrictions) parts.push(`Dietary restrictions: ${profile.dietaryRestrictions}`)
   return parts.length > 0 ? parts.join('. ') : 'Standard morning routine.'
 }

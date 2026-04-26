@@ -50,6 +50,7 @@ export interface UserContextSummary {
     morningFocus: string
     routineNotes: string
     dietaryProfile: string
+    foodPreferences: string
     musicProfile: string
     styleProfile: string
   }

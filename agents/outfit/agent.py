@@ -25,11 +25,12 @@ from shared.models import (
     EnrichedContext,
 )
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 OUTFIT_AGENT_SEED = os.getenv("OUTFIT_AGENT_SEED")
 ASI_URL = os.getenv("ASI_API_URL", "https://api.asi1.ai/v1/chat/completions")
 ASI_ONE_API_KEY = os.getenv("ASI_ONE_API_KEY")
+ORCHESTRATOR_AGENT_ADDRESS = os.getenv("ORCHESTRATOR_AGENT_ADDRESS", "").strip()
 _PSYCOPG2_UNSUPPORTED_PARAMS = {"pgbouncer", "connection_limit"}
 
 def _clean_db_url(url: str) -> str:
@@ -50,7 +51,7 @@ agent = Agent(
 )
 
 chat_proto = Protocol(spec=chat_protocol_spec)
-orchestrator_proto = Protocol(name="orchestrator-outfit", version="0.1.0")
+orchestrator_proto = Protocol(name="orchestrator-pipeline", version="0.1.0")
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +338,11 @@ async def generate_outfit_card(context: EnrichedContext) -> dict:
 @orchestrator_proto.on_message(ActionAgentRequest)
 async def handle_action_request(ctx: Context, sender: str, msg: ActionAgentRequest) -> None:
     ctx.logger.info(f"[outfit] ActionAgentRequest received for session {msg.session_id}")
+    reply_target = ORCHESTRATOR_AGENT_ADDRESS or sender
+    if ORCHESTRATOR_AGENT_ADDRESS:
+        ctx.logger.info(f"[outfit] replying to configured ORCHESTRATOR_AGENT_ADDRESS: {reply_target}")
+    else:
+        ctx.logger.info(f"[outfit] replying to sender: {reply_target}")
 
     card_data = None
     error = None
@@ -348,7 +354,7 @@ async def handle_action_request(ctx: Context, sender: str, msg: ActionAgentReque
         ctx.logger.exception(f"[outfit] Error generating outfit card: {e}")
         card_data = FALLBACK_CARD
 
-    await ctx.send(sender, ActionAgentResponse(
+    await ctx.send(reply_target, ActionAgentResponse(
         session_id=msg.session_id,
         agent_name="outfit",
         card_data=card_data,

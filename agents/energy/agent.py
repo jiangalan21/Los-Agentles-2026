@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from uagents import Agent, Context, Model
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 ASI1_API_KEY = os.getenv("ASI1_API_KEY")
 ENERGY_AGENT_PORT = int(os.getenv("ENERGY_AGENT_PORT", "8005"))

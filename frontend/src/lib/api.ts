@@ -22,6 +22,34 @@ export type EnergyCurvePoint = {
   value: number
 }
 
+export type MealDish = {
+  name: string
+  station: string
+  reason: string
+}
+
+export type MealWindow = {
+  dishes: MealDish[]
+}
+
+export type MealAgentOutput = {
+  value?: string
+  detail?: string
+  previewData?: string
+  meals?: {
+    breakfast?: MealWindow
+    lunch?: MealWindow
+    dinner?: MealWindow
+  }
+  rationale?: string
+  dietFlags?: string[]
+  sourceMeta?: {
+    diningHall?: string
+    diningHalls?: string[]
+    serviceDate?: string
+  }
+}
+
 export type EnergyAgentOutput = {
   value?: string
   detail?: string
@@ -43,6 +71,20 @@ export type EnergyAgentOutput = {
   toneTag?: string
 }
 
+export type CustomAgentOutput = {
+  value?: string
+  detail?: string
+  previewData?: string
+  responseText?: string
+  agentAddress?: string
+  submittedPrompt?: string
+  latencyMs?: number
+  formattedBy?: 'asi' | 'deterministic' | 'raw'
+  formatError?: string | null
+  rawPayload?: string | null
+  error?: string
+}
+
 export type SessionPayload = {
   session: {
     id: string
@@ -59,6 +101,8 @@ export type ProfilePayload = {
   location: string
   morningFocus: string
   routineNotes: string
+  dietaryRestrictions: string
+  foodPreferences: string
   musicPreferences: string
   stylePreferences: string
 }
@@ -160,6 +204,28 @@ export async function regenerateOutfitForSession(
   return request<{ ok: boolean; output: SessionOutput['output'] }>(`/session/${sessionId}/regenerate/outfit`, {
     method: 'POST',
     userKey,
+  })
+}
+
+export async function regenerateMealForSession(
+  userKey: string,
+  sessionId: string,
+): Promise<{ ok: boolean; output: SessionOutput['output'] }> {
+  return request<{ ok: boolean; output: SessionOutput['output'] }>(`/session/${sessionId}/regenerate/meal`, {
+    method: 'POST',
+    userKey,
+  })
+}
+
+export async function runCustomAgentForSession(
+  userKey: string,
+  sessionId: string,
+  payload: { agentAddress: string; prompt: string },
+): Promise<{ ok: boolean; requestId: string | null }> {
+  return request<{ ok: boolean; requestId: string | null }>(`/session/${sessionId}/custom-agent/run`, {
+    method: 'POST',
+    userKey,
+    body: payload,
   })
 }
 

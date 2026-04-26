@@ -10,15 +10,17 @@ import {
   Music2,
   Shirt,
   Sun,
+  Utensils,
   Wind,
   Zap,
 } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { JSX, useEffect, useMemo, useState } from 'react'
+import { JSX, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   createRequest,
   createSession,
   type EnergyAgentOutput,
+  type MealAgentOutput,
   type ProfilePayload,
   getHourlyForecast,
   getProfile,
@@ -26,6 +28,7 @@ import {
   getRequest,
   getSession,
   getWeatherMapPreviewUrl,
+  regenerateMealForSession,
   regenerateMusicForSession,
   regenerateOutfitForSession,
   savePreferences,
@@ -87,6 +90,14 @@ type AgentOutput = {
   energyCurve?: Array<{ timeLabel: string; value: number }>
   quote?: { text?: string; authorOrSource?: string }
   toneTag?: string
+  meals?: {
+    breakfast?: { dishes: Array<{ name: string; station: string; reason: string }> }
+    lunch?: { dishes: Array<{ name: string; station: string; reason: string }> }
+    dinner?: { dishes: Array<{ name: string; station: string; reason: string }> }
+  }
+  rationale?: string
+  dietFlags?: string[]
+  sourceMeta?: { diningHall?: string; diningHalls?: string[]; serviceDate?: string }
 }
 
 export function hasAllCoreAgentOutputs(outputs: Array<{ agentName?: string }>): boolean {
@@ -95,7 +106,8 @@ export function hasAllCoreAgentOutputs(outputs: Array<{ agentName?: string }>): 
     completedAgentNames.has('weather') &&
     completedAgentNames.has('outfit') &&
     completedAgentNames.has('music') &&
-    completedAgentNames.has('energy')
+    completedAgentNames.has('energy') &&
+    completedAgentNames.has('meal')
   )
 }
 
@@ -276,8 +288,48 @@ export function DashboardView() {
         ],
         actions: ['Start Focus Sprint', 'Take Reset Break'],
       },
+      {
+        id: 'meal',
+        accent: colors.blue,
+        label: 'Meals',
+        value: "Today's UCLA Dining Pick",
+        detail: 'De Neve · Breakfast + Lunch + Dinner',
+        previewData: 'Curated dishes from UCLA dining matched to your morning.',
+        icon: <Utensils size={54} strokeWidth={2.2} />,
+        subtitle: 'Personalized meal picks from UCLA dining based on your goals and energy.',
+        fields: [
+          { key: 'Breakfast', value: 'Scrambled Eggs, Oatmeal' },
+          { key: 'Lunch', value: 'Bruin Burger, Garden Salad' },
+          { key: 'Dinner', value: 'Pasta Primavera, Roasted Vegetables' },
+        ],
+        actions: [],
+      },
     ],
     [],
+  )
+
+  const appendSessionOutput = useCallback(
+    (agentName: string, output: unknown) => {
+      if (!sessionId) return
+      queryClient.setQueryData(['session', sessionId, userKey], (current: unknown) => {
+        if (!current || typeof current !== 'object') return current
+        const sessionData = current as { outputs?: unknown[] }
+        const outputs = Array.isArray(sessionData.outputs) ? sessionData.outputs : []
+        return {
+          ...sessionData,
+          outputs: [
+            ...outputs,
+            {
+              id: `local-${agentName}-${Date.now()}`,
+              agentName,
+              output,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }
+      })
+    },
+    [queryClient, sessionId, userKey],
   )
 
   const createSessionMutation = useMutation({
@@ -299,7 +351,8 @@ export function DashboardView() {
 
   const regenerateMusicMutation = useMutation({
     mutationFn: () => regenerateMusicForSession(userKey, sessionId as string),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      appendSessionOutput('music', data.output)
       void queryClient.invalidateQueries({ queryKey: ['session', sessionId, userKey] })
       void sendFeedback({ userKey, sessionId: sessionId ?? undefined, agentName: 'music', signal: 'regenerated' })
     },
@@ -307,20 +360,19 @@ export function DashboardView() {
 
   const regenerateOutfitMutation = useMutation({
     mutationFn: () => regenerateOutfitForSession(userKey, sessionId as string),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      appendSessionOutput('outfit', data.output)
       void queryClient.invalidateQueries({ queryKey: ['session', sessionId, userKey] })
       void sendFeedback({ userKey, sessionId: sessionId ?? undefined, agentName: 'outfit', signal: 'regenerated' })
     },
   })
 
-  const sessionQuery = useQuery({
-    queryKey: ['session', sessionId, userKey],
-    queryFn: () => getSession(userKey, sessionId as string),
-    enabled: Boolean(sessionId),
-    retry: 1,
-    refetchInterval: (query) => {
-      const outputs = (query.state.data as { outputs?: unknown[] } | undefined)?.outputs ?? []
-      return hasAllCoreAgentOutputs(outputs as Array<{ agentName?: string }>) ? false : 1000
+  const regenerateMealMutation = useMutation({
+    mutationFn: () => regenerateMealForSession(userKey, sessionId as string),
+    onSuccess: (data) => {
+      appendSessionOutput('meal', data.output)
+      void queryClient.invalidateQueries({ queryKey: ['session', sessionId, userKey] })
+      void sendFeedback({ userKey, sessionId: sessionId ?? undefined, agentName: 'meal', signal: 'regenerated' })
     },
   })
 
@@ -335,6 +387,20 @@ export function DashboardView() {
     queryFn: () => getRequest(userKey, requestId as string),
     enabled: Boolean(requestId),
     refetchInterval: 1500,
+  })
+
+  const sessionQuery = useQuery({
+    queryKey: ['session', sessionId, userKey],
+    queryFn: () => getSession(userKey, sessionId as string),
+    enabled: Boolean(sessionId),
+    retry: 1,
+    refetchInterval: (query) => {
+      const outputs = (query.state.data as { outputs?: unknown[] } | undefined)?.outputs ?? []
+      if (!hasAllCoreAgentOutputs(outputs as Array<{ agentName?: string }>)) {
+        return 1000
+      }
+      return false
+    },
   })
 
   const profileQuery = useQuery({
@@ -378,8 +444,7 @@ export function DashboardView() {
       return
     }
 
-    // Drop any legacy fields the backend may still return (e.g. dietaryPreferences)
-    const { name, location, morningFocus, routineNotes, musicPreferences, stylePreferences } =
+    const { name, location, morningFocus, routineNotes, dietaryRestrictions, foodPreferences, musicPreferences, stylePreferences } =
       profileQuery.data.profile as ProfilePayload & Record<string, unknown>
     setProfile((current) => ({
       ...current,
@@ -387,6 +452,8 @@ export function DashboardView() {
       location: location ?? current.location,
       morningFocus: morningFocus ?? current.morningFocus,
       routineNotes: routineNotes ?? current.routineNotes,
+      dietaryRestrictions: dietaryRestrictions ?? current.dietaryRestrictions,
+      foodPreferences: foodPreferences ?? current.foodPreferences,
       musicPreferences: musicPreferences ?? current.musicPreferences,
       stylePreferences: stylePreferences ?? current.stylePreferences,
     }))
@@ -450,7 +517,7 @@ export function DashboardView() {
     [cardDetails, outputsByAgent],
   )
 
-  const completedCount = Object.keys(outputsByAgent).length
+  const completedCount = ['weather', 'outfit', 'music', 'energy', 'meal'].filter((name) => Boolean(outputsByAgent[name])).length
   const selectedCard = enrichedCards.find((card) => card.id === selectedCardId) ?? null
   const selectedCardOutput = selectedCard ? outputsByAgent[selectedCard.id] : undefined
   const topMusicTrack = selectedCard?.id === 'music' ? selectedCardOutput?.tracks?.[0] : undefined
@@ -596,6 +663,34 @@ export function DashboardView() {
       }
     }
 
+    if (selectedCard.id === 'meal') {
+      const mealOutput = selectedCardOutput as MealAgentOutput | undefined
+      const meals = mealOutput?.meals
+
+      const formatDishes = (window: { dishes: Array<{ name: string; station: string; reason: string }> } | undefined) =>
+        window?.dishes?.map((d) => `${d.name} (${d.station})`).join(', ') || 'Not available yet'
+
+      return {
+        ...selectedCard,
+        value: 'Meal Plan',
+        layoutVariant: 'meal' as const,
+        subtitle: mealOutput?.rationale ?? selectedCard.subtitle,
+        fields: [
+          { key: 'Breakfast', value: formatDishes(meals?.breakfast) },
+          { key: 'Lunch', value: formatDishes(meals?.lunch) },
+          { key: 'Dinner', value: formatDishes(meals?.dinner) },
+          ...(mealOutput?.dietFlags?.length ? [{ key: 'Diet Flags', value: mealOutput.dietFlags.join(' · ') }] : []),
+          ...(mealOutput?.sourceMeta?.diningHalls?.length
+            ? [{ key: 'Dining Halls', value: mealOutput.sourceMeta.diningHalls.join(' · ') }]
+            : mealOutput?.sourceMeta?.diningHall
+              ? [{ key: 'Dining Hall', value: mealOutput.sourceMeta.diningHall }]
+              : []),
+        ],
+        actions: ['Regenerate Meal Plan'],
+        mealData: mealOutput,
+      }
+    }
+
     return selectedCard
   }, [profile.location, selectedCard, selectedCardOutput])
   const panelHeroImageUrl =
@@ -620,6 +715,11 @@ export function DashboardView() {
       ),
     [requestStatusQuery.data?.agents],
   )
+  const hasOutputForAgent = useCallback(
+    (agentName: string) => Boolean(outputsByAgent[agentName]),
+    [outputsByAgent],
+  )
+  const trackedAgentTarget = 5
   const showProfileBadge = useMemo(() => {
     const fieldsToCheck = [
       profile.name,
@@ -682,6 +782,8 @@ export function DashboardView() {
       location: nextProfile.location,
       morningFocus: nextProfile.morningFocus,
       routineNotes: nextProfile.routineNotes,
+      dietaryRestrictions: nextProfile.dietaryRestrictions,
+      foodPreferences: nextProfile.foodPreferences,
       musicPreferences: nextProfile.musicPreferences,
       stylePreferences: nextProfile.stylePreferences,
     }).catch(() => {
@@ -777,7 +879,7 @@ export function DashboardView() {
               <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 font-body text-xs uppercase tracking-[0.12em] text-foreground/70">
                 Request {requestId.slice(0, 8)} ·{' '}
                 {requestStatusQuery.data?.request.status ?? 'initializing'} · Agents done:{' '}
-                {requestStatusQuery.data?.agents.filter((agent) => agent.status === 'completed').length ?? 0}/4
+                {requestStatusQuery.data?.agents.filter((agent) => agent.status === 'completed').length ?? 0}/{trackedAgentTarget}
               </div>
             ) : null}
             {sessionError ? (
@@ -807,41 +909,40 @@ export function DashboardView() {
                 detail={enrichedCards[0].detail}
                 previewData={enrichedCards[0].previewData}
                 onClick={() => setSelectedCardId(enrichedCards[0].id)}
-                isLoading={!completedAgents.has(enrichedCards[0].id)}
+                isLoading={!(completedAgents.has(enrichedCards[0].id) || hasOutputForAgent(enrichedCards[0].id))}
                 isSelected={selectedCardId === enrichedCards[0].id}
               />
-              <div className="translate-y-[20px]">
-                <DashboardCard
-                  accent={enrichedCards[1].accent}
-                  icon={<Shirt size={24} strokeWidth={2.2} />}
-                  label={enrichedCards[1].label}
-                  value={enrichedCards[1].value}
-                  detail={enrichedCards[1].detail}
-                  previewData={enrichedCards[1].previewData}
-                  onClick={() => setSelectedCardId(enrichedCards[1].id)}
-                  feedbackState={feedbackStateByAgent[enrichedCards[1].id] ?? null}
-                  onLike={() => submitThumbFeedback(enrichedCards[1].id, 'liked')}
-                  onDislike={() => submitThumbFeedback(enrichedCards[1].id, 'disliked')}
-                  onRegenerate={sessionId ? () => regenerateOutfitMutation.mutate() : undefined}
-                  isLoading={!completedAgents.has(enrichedCards[1].id) || regenerateOutfitMutation.isPending}
-                  isSelected={selectedCardId === enrichedCards[1].id}
-                />
-              </div>
-              <div className="translate-y-[20px]">
-                <MusicCard
-                  value={enrichedCards[2].value}
-                  detail={enrichedCards[2].detail}
-                  previewData={enrichedCards[2].previewData}
-                  tracks={(outputsByAgent['music'] as { tracks?: Array<{ title: string; artist: string; spotify_id?: string | null }> } | undefined)?.tracks}
-                  isLoading={!completedAgents.has('music') || regenerateMusicMutation.isPending}
-                  feedbackState={feedbackStateByAgent['music'] ?? null}
-                  onLike={() => submitThumbFeedback('music', 'liked')}
-                  onDislike={() => submitThumbFeedback('music', 'disliked')}
-                  onRegenerate={sessionId ? () => regenerateMusicMutation.mutate() : undefined}
-                  onClick={() => setSelectedCardId(enrichedCards[2].id)}
-                  isSelected={selectedCardId === enrichedCards[2].id}
-                />
-              </div>
+              <DashboardCard
+                accent={enrichedCards[1].accent}
+                icon={<Shirt size={24} strokeWidth={2.2} />}
+                label={enrichedCards[1].label}
+                value={enrichedCards[1].value}
+                detail={enrichedCards[1].detail}
+                previewData={enrichedCards[1].previewData}
+                onClick={() => setSelectedCardId(enrichedCards[1].id)}
+                feedbackState={feedbackStateByAgent[enrichedCards[1].id] ?? null}
+                onLike={() => submitThumbFeedback(enrichedCards[1].id, 'liked')}
+                onDislike={() => submitThumbFeedback(enrichedCards[1].id, 'disliked')}
+                onRegenerate={sessionId ? () => regenerateOutfitMutation.mutate() : undefined}
+                isLoading={
+                  (!(completedAgents.has(enrichedCards[1].id) || hasOutputForAgent(enrichedCards[1].id))) ||
+                  regenerateOutfitMutation.isPending
+                }
+                isSelected={selectedCardId === enrichedCards[1].id}
+              />
+              <MusicCard
+                value={enrichedCards[2].value}
+                detail={enrichedCards[2].detail}
+                previewData={enrichedCards[2].previewData}
+                tracks={(outputsByAgent['music'] as { tracks?: Array<{ title: string; artist: string; spotify_id?: string | null }> } | undefined)?.tracks}
+                isLoading={(!(completedAgents.has('music') || hasOutputForAgent('music'))) || regenerateMusicMutation.isPending}
+                feedbackState={feedbackStateByAgent['music'] ?? null}
+                onLike={() => submitThumbFeedback('music', 'liked')}
+                onDislike={() => submitThumbFeedback('music', 'disliked')}
+                onRegenerate={sessionId ? () => regenerateMusicMutation.mutate() : undefined}
+                onClick={() => setSelectedCardId(enrichedCards[2].id)}
+                isSelected={selectedCardId === enrichedCards[2].id}
+              />
               <DashboardCard
                 accent={enrichedCards[3].accent}
                 icon={<Zap size={24} strokeWidth={2.2} />}
@@ -853,21 +954,41 @@ export function DashboardView() {
                 feedbackState={feedbackStateByAgent[enrichedCards[3].id] ?? null}
                 onLike={() => submitThumbFeedback(enrichedCards[3].id, 'liked')}
                 onDislike={() => submitThumbFeedback(enrichedCards[3].id, 'disliked')}
-                isLoading={!completedAgents.has(enrichedCards[3].id)}
+                isLoading={!(completedAgents.has(enrichedCards[3].id) || hasOutputForAgent(enrichedCards[3].id))}
                 energyCurve={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.energyCurve}
                 energyWindows={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.energyWindows ?? null}
                 quoteText={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.quote?.text}
                 isSelected={selectedCardId === enrichedCards[3].id}
               />
+              <div className="col-span-2">
+                <DashboardCard
+                  accent={enrichedCards[4].accent}
+                  icon={<Utensils size={24} strokeWidth={2.2} />}
+                  label={enrichedCards[4].label}
+                  value={enrichedCards[4].value}
+                  detail={enrichedCards[4].detail}
+                  previewData={enrichedCards[4].previewData}
+                  onClick={() => setSelectedCardId(enrichedCards[4].id)}
+                  feedbackState={feedbackStateByAgent[enrichedCards[4].id] ?? null}
+                  onLike={() => submitThumbFeedback(enrichedCards[4].id, 'liked')}
+                  onDislike={() => submitThumbFeedback(enrichedCards[4].id, 'disliked')}
+                  onRegenerate={sessionId ? () => regenerateMealMutation.mutate() : undefined}
+                  isLoading={
+                    (!(completedAgents.has(enrichedCards[4].id) || hasOutputForAgent(enrichedCards[4].id))) ||
+                    regenerateMealMutation.isPending
+                  }
+                  isSelected={selectedCardId === enrichedCards[4].id}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-6">
               <StatBox accent={colors.primary} label="Current Time" value={currentTimeText} />
-              <StatBox accent={colors.secondary} label="Completion" value={`${completedCount}/4`} />
+              <StatBox accent={colors.secondary} label="Completion" value={`${completedCount}/${trackedAgentTarget}`} />
               <StatBox
                 accent={colors.tertiary}
                 label="Status"
-                value={sessionQuery.isFetching ? 'Loading' : completedCount >= 4 ? 'Ready' : 'Working'}
+                value={sessionQuery.isFetching ? 'Loading' : completedCount >= trackedAgentTarget ? 'Ready' : 'Working'}
               />
             </div>
           </div>
@@ -895,7 +1016,13 @@ export function DashboardView() {
                     accent={(selectedCardPanel ?? selectedCard).accent}
                     label={(selectedCardPanel ?? selectedCard).label}
                     title={(selectedCardPanel ?? selectedCard).value}
-                    layoutVariant={selectedCard.id === 'outfit' ? 'outfit' : 'default'}
+                    layoutVariant={
+                      selectedCard.id === 'outfit'
+                        ? 'outfit'
+                        : selectedCard.id === 'meal'
+                          ? 'meal'
+                          : 'default'
+                    }
                     titleClassName={selectedCard.id === 'music' ? 'text-4xl xl:text-5xl break-words' : undefined}
                     subtitle={(selectedCardPanel ?? selectedCard).subtitle}
                     icon={(selectedCardPanel ?? selectedCard).icon}
@@ -916,12 +1043,29 @@ export function DashboardView() {
                         ? buildEnergyInsights(selectedCardOutput as EnergyAgentOutput | undefined)
                         : undefined
                     }
+                    mealInsights={
+                      selectedCard.id === 'meal'
+                        ? (selectedCardOutput as MealAgentOutput | undefined)
+                        : undefined
+                    }
                     onActionClick={(action) => {
                       if (selectedCard.id === 'weather') {
                         if (action === 'View Hourly Forecast') {
                           setIsForecastModalOpen(true)
                           return
                         }
+                      }
+                      if (selectedCard.id === 'music' && action === 'Regenerate Queue') {
+                        if (sessionId) regenerateMusicMutation.mutate()
+                        return
+                      }
+                      if (selectedCard.id === 'outfit' && action.toLowerCase().includes('regenerate')) {
+                        if (sessionId) regenerateOutfitMutation.mutate()
+                        return
+                      }
+                      if (selectedCard.id === 'meal' && action === 'Regenerate Meal Plan') {
+                        if (sessionId) regenerateMealMutation.mutate()
+                        return
                       }
                       const signal = action.toLowerCase().includes('regenerate') ? 'regenerated' : 'accepted'
                       void handleFeedback(selectedCard.id, signal)

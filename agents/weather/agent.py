@@ -22,14 +22,15 @@ from uagents_core.contrib.protocols.chat import (
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.models import ContextAgentRequest, ContextAgentResponse
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 OWM_WEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
 OWM_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 OWM_GEO_URL = "http://api.openweathermap.org/geo/1.0/direct"
 OWM_REVERSE_URL = "http://api.openweathermap.org/geo/1.0/reverse"
 ASI_URL = os.getenv("ASI_API_URL", "https://api.asi1.ai/v1/chat/completions")
-WEATHER_AGENT_SEED = os.getenv("WEATHER_AGENT_SEED")
+WEATHER_AGENT_SEED = os.getenv("WEATHER_AGENT_SEED") or os.getenv("AGENT_SEED", "weather-agent-seed")
+ORCHESTRATOR_AGENT_ADDRESS = os.getenv("ORCHESTRATOR_AGENT_ADDRESS", "").strip()
 
 FALLBACK_MESSAGE = "Weather service unavailable — assuming mild, partly cloudy conditions around 68°F."
 
@@ -58,7 +59,7 @@ PERIODS: Dict[str, Tuple[int, int]] = {
 
 DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
-_endpoint = os.getenv("AGENT_ENDPOINT") or "http://localhost:8001/submit"
+_endpoint = os.getenv("WEATHER_AGENT_ENDPOINT") or os.getenv("AGENT_ENDPOINT") or "http://localhost:8001/submit"
 
 agent = Agent(
     name="weather-agent",
@@ -509,7 +510,7 @@ async def handle_ack(ctx: Context, sender: str, _msg: ChatAcknowledgement) -> No
 # Handles ContextAgentRequest from the orchestrator and replies with a
 # ContextAgentResponse containing structured weather data.
 
-orchestrator_proto = Protocol(name="orchestrator-weather", version="0.1.0")
+orchestrator_proto = Protocol(name="orchestrator-pipeline", version="0.1.0")
 
 
 def _resolve_location(msg: ContextAgentRequest) -> Optional[str]:
@@ -554,9 +555,13 @@ async def _fetch_weather_for_location(location_str: str) -> Optional[dict]:
     }
 
 
-@orchestrator_proto.on_message(ContextAgentRequest)
-async def handle_context_request(ctx: Context, sender: str, msg: ContextAgentRequest) -> None:
+async def _handle_context_request(ctx: Context, sender: str, msg: ContextAgentRequest) -> None:
     ctx.logger.info(f"[orchestrator] ContextAgentRequest received for session {msg.session_id}")
+    reply_target = ORCHESTRATOR_AGENT_ADDRESS or sender
+    if ORCHESTRATOR_AGENT_ADDRESS:
+        ctx.logger.info(f"[orchestrator] replying to configured ORCHESTRATOR_AGENT_ADDRESS: {reply_target}")
+    else:
+        ctx.logger.info(f"[orchestrator] replying to sender: {reply_target}")
 
     location_str = _resolve_location(msg)
     weather_data = None
@@ -583,13 +588,18 @@ async def handle_context_request(ctx: Context, sender: str, msg: ContextAgentReq
             "narrative": FALLBACK_MESSAGE,
         }
 
-    await ctx.send(sender, ContextAgentResponse(
+    await ctx.send(reply_target, ContextAgentResponse(
         session_id=msg.session_id,
         agent_name="weather",
         context_data=weather_data,
         error=error,
     ))
     ctx.logger.info(f"[orchestrator] ContextAgentResponse sent for session {msg.session_id}")
+
+
+@orchestrator_proto.on_message(ContextAgentRequest)
+async def handle_context_request_pipeline(ctx: Context, sender: str, msg: ContextAgentRequest) -> None:
+    await _handle_context_request(ctx, sender, msg)
 
 
 agent.include(proto, publish_manifest=True)

@@ -36,6 +36,9 @@ router.post('/results', async (req, res) => {
     }
 
     for (const { agentName, output } of agents) {
+      const outputRecord = output && typeof output === 'object' ? (output as Record<string, unknown>) : null
+      const shouldMarkFailed = typeof outputRecord?.error === 'string' && outputRecord.error.trim().length > 0
+
       if (requestId) {
         const existing = await prisma.plan_request_agents.findFirst({
           where: { request_id: requestId, agent_name: agentName },
@@ -63,14 +66,15 @@ router.post('/results', async (req, res) => {
             request_id: requestId,
             user_id: session!.user_id,
             agent_name: agentName,
-            status: 'completed',
-            completed_at: new Date(),
+            status: shouldMarkFailed ? 'failed' : 'completed',
+            completed_at: shouldMarkFailed ? null : new Date(),
             attempt_count: 1,
+            last_error: shouldMarkFailed ? (outputRecord?.error as string) : null,
           },
           update: {
-            status: 'completed',
-            completed_at: new Date(),
-            last_error: null,
+            status: shouldMarkFailed ? 'failed' : 'completed',
+            completed_at: shouldMarkFailed ? null : new Date(),
+            last_error: shouldMarkFailed ? (outputRecord?.error as string) : null,
           },
         })
       }

@@ -2,6 +2,8 @@
 
 Morning day planner for the indecisive student. Built for LAHacks 2026.
 
+Current dashboard modules: `weather`, `outfit`, `music`, `energy`, and `meal` plus an optional `custom_agent` runner.
+
 ## Prerequisites
 
 - Node.js 20+
@@ -73,9 +75,7 @@ python agent.py
 | outfit     | 8002 |
 | music      | 8003 |
 | energy     | 8005 |
-| restaurant | 8004 |
-| schedule   | 8006 |
-| wellness   | 8007 (legacy, not active in 4-card flow) |
+| meal       | 8006 |
 
 ---
 
@@ -95,6 +95,7 @@ python agent.py
   /outfit
   /music
   /energy
+  /meal
   /restaurant   (not active in current dashboard pipeline)
   /wellness     (legacy / not active in current dashboard pipeline)
   /schedule     (legacy / not active in current dashboard pipeline)
@@ -110,6 +111,10 @@ python agent.py
 | `backend/.env` | `DATABASE_URL` | Supabase PostgreSQL connection string |
 | `backend/.env` | `PYTHON_ORCHESTRATOR_URL` | Python orchestrator run endpoint (default `http://localhost:8000/run`) |
 | `backend/.env` | `MUSIC_AGENT_URL` | Music agent endpoint for regeneration (default `http://localhost:8003/run`) |
+| `backend/.env` | `OUTFIT_AGENT_URL` | Outfit agent endpoint for regeneration (default `http://localhost:8002/run`) |
+| `backend/.env` | `MEAL_AGENT_URL` | Meal agent endpoint for regeneration (default `http://localhost:8006/run`) |
+| `backend/.env` | `BACKEND_INTERNAL_RESULTS_URL` | Internal callback URL used by custom async runner (default `http://localhost:3001/internal/results`) |
+| `backend/.env` | `CUSTOM_AGENT_ALLOWED_HOSTS` | Comma-separated hostname allowlist for custom Agentverse runs |
 | `backend/.env` | `INTERNAL_RESULTS_KEY` | Shared secret required by `POST /internal/results` (`x-internal-key`) |
 | `backend/.env` | `OPENWEATHER_API_KEY` | OpenWeatherMap API key for weather service |
 | `backend/.env` | `YELP_API_KEY` | Yelp Fusion API key for restaurant service |
@@ -118,4 +123,5 @@ python agent.py
 | `agents/orchestrator/.env` | `WEATHER_AGENT_URL` | Weather agent run endpoint |
 | `agents/orchestrator/.env` | `MUSIC_AGENT_URL` | Music agent run endpoint |
 | `agents/orchestrator/.env` | `ENERGY_AGENT_URL` | Energy agent run endpoint |
+| `agents/orchestrator/.env` | `MEAL_AGENT_URL` | Meal agent run endpoint |
 | `agents/energy/.env` | `ENERGY_AGENT_PORT` | Energy agent port (default `8005`) |

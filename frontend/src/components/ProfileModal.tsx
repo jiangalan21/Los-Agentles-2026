@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Cloud, Music2, Shirt, Zap } from 'lucide-react'
+import { Cloud, Music2, Shirt, Utensils, Zap } from 'lucide-react'
 import { FormEvent, KeyboardEvent, useEffect, useState } from 'react'
 import type { UserProfile } from '../lib/userProfile'
 
@@ -153,6 +153,30 @@ export function ProfileModal({ isOpen, initialProfile, onClose, onSave }: Profil
                 onChange={(v) => setProfile((p) => ({ ...p, musicPreferences: v }))}
                 placeholder="e.g. lo-fi"
               />
+            </div>
+
+            {/* Meals */}
+            <div className="mt-6">
+              <SectionHeader
+                label="Meals"
+                icon={<Utensils size={12} strokeWidth={2.5} />}
+                agentColor="text-blue-400"
+                hint="Meal agent picks dishes that match your tastes and avoids anything you can't eat."
+              />
+              <div className="space-y-4">
+                <TagField
+                  label="Food Preferences"
+                  value={profile.foodPreferences}
+                  onChange={(v) => setProfile((p) => ({ ...p, foodPreferences: v }))}
+                  placeholder="e.g. spicy, pasta"
+                />
+                <TagField
+                  label="Dietary Restrictions / Allergies"
+                  value={profile.dietaryRestrictions}
+                  onChange={(v) => setProfile((p) => ({ ...p, dietaryRestrictions: v }))}
+                  placeholder="e.g. vegetarian, no nuts"
+                />
+              </div>
             </div>
 
             <div className="mt-8 flex justify-end gap-3">

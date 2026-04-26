@@ -2,9 +2,9 @@
 
 ## What We're Building
 
-A morning day planner for the indecisive student. The user describes their morning in a text prompt; the app returns a set of concrete, coherent recommendations across weather, outfit, music, and energy — all consistent with each other and grounded in real-time data. The goal is to eliminate the gray area of indecision during the morning rush by giving the user something specific to say yes or no to.
+A morning day planner for the indecisive student. The user describes their morning in a text prompt; the app returns a set of concrete, coherent recommendations across weather, outfit, music, energy, and meal planning — all consistent with each other and grounded in real-time data. The goal is to eliminate the gray area of indecision during the morning rush by giving the user something specific to say yes or no to.
 
-**Demo target:** A judge types "I'm stressed, have a midterm at 2pm, and it's cold outside" and receives a weather card, a weather-appropriate outfit, a calming playlist, and an energy/focus recommendation stream that all feel coherent together.
+**Demo target:** A judge types "I'm stressed, have a midterm at 2pm, and it's cold outside" and receives a weather card, a weather-appropriate outfit, a calming playlist, an energy/focus recommendation stream, and UCLA meal picks that all feel coherent together.
 
 ---
 
@@ -19,7 +19,7 @@ A morning day planner for the indecisive student. The user describes their morni
 5. User submits prompt/session request (`POST /session`) with `user_key` + `request_id`
 6. Backend composes `user_context` from preferences, recent sessions, and feedback signals
 7. Backend parser creates enriched `day_context` JSON (local heuristic parsing + stored user context)
-8. Backend orchestration writes immediate `outfit` output and pre-seeds `energy` fallback, then asynchronously calls the Python orchestrator for `weather`/`music`/`energy`
+8. Backend orchestration writes immediate fallback output for `energy` and `meal`, then asynchronously calls the Python orchestrator for `weather`/`outfit`/`music`/`energy`/`meal`
 9. Python orchestrator posts callback outputs to `POST /internal/results`
 10. Frontend polls session/request status and renders cards progressively
 11. User feedback (`/feedback`) is stored and fed back into future context assembly
@@ -33,6 +33,9 @@ A morning day planner for the indecisive student. The user describes their morni
 | GET | `/session` | Returns recent sessions for the current anonymous user |
 | GET | `/session/:id` | Returns session + all agent outputs (ownership checked) |
 | POST | `/session/:id/regenerate/music` | Regenerates the music card for an existing session |
+| POST | `/session/:id/regenerate/outfit` | Regenerates the outfit card for an existing session |
+| POST | `/session/:id/regenerate/meal` | Regenerates the meal card for an existing session |
+| POST | `/session/:id/custom-agent/run` | Runs a user-specified Agentverse endpoint and stores output as `custom_agent` |
 | POST | `/preferences` | Saves/updates user preference profile |
 | POST | `/feedback` | Stores per-module feedback signals (`liked`/`disliked`/etc.) |
 | GET | `/profile` | Returns persisted user profile context for the current anonymous user |
@@ -69,7 +72,7 @@ A morning day planner for the indecisive student. The user describes their morni
 ### Database Framework (Current)
 
 Current persisted models:
-- `users` — anonymous identity (`anon_key`), ownership root, and persisted profile fields (`name`, `location`, `morning_focus`, `routine_notes`, `dietary_profile`, `music_profile`, `style_profile`)
+- `users` — anonymous identity (`anon_key`), ownership root, and persisted profile fields (`name`, `location`, `morning_focus`, `routine_notes`, `dietary_profile`, `food_preferences`, `music_profile`, `style_profile`)
 - `sessions` — per-plan request payload + parsed context snapshot
 - `agent_outputs` — per-agent outputs, timestamps, completion evidence, and optional `request_id` linkage
 - `user_preferences` — normalized cuisine/music/style preference arrays
@@ -85,12 +88,13 @@ Current persisted models:
   - Maintains `user_key`, active `session_id`, and active `request_id` in localStorage.
   - Automatically resumes latest session when available; otherwise creates a fresh request + session.
   - Uses TanStack Query to poll both session outputs and request/agent status.
-  - Maps progressive agent completion into per-card loading states for `weather`, `outfit`, `music`, `energy`.
+  - Maps progressive agent completion into per-card loading states for `weather`, `outfit`, `music`, `energy`, and `meal`.
   - Stores profile locally and syncs to backend via `/profile`.
   - Profile save triggers a fresh session using updated context.
   - Captures card/panel feedback and sends to `/feedback`.
   - Supports weather hourly forecast full-screen modal via `/weather/hourly`.
-  - Supports music regeneration on demand via `/session/:id/regenerate/music`.
+  - Supports music/outfit/meal regeneration via `/session/:id/regenerate/{music|outfit|meal}`.
+  - Includes a custom agent module that runs `/session/:id/custom-agent/run` and displays external Agentverse output.
 - UI composition:
   - Reusable modules: `DashboardCard`, `ExpandedPanel`, `StatBox`, `ProfileModal`, `DashboardHeader`, `Logo`.
   - Live `Current Time` stat box in dashboard updates every second.
@@ -129,16 +133,24 @@ Takes mood and energy level from `day_context`. Returns playlist name, vibe text
 Current dashboard includes an `energy` card generated by the Python energy agent and rendered with a curve plot, peak/dip windows, wellness tips, and motivational quote.
 - **Fallback:** Node pre-seeds a deterministic energy payload so the card can render while async orchestration runs.
 
+### Meal Agent
+Generates a UCLA-focused meal plan card (`breakfast`, `lunch`, `dinner`) using prompt context, profile dietary signals, and a UCLA menu snapshot from backend scraping.
+- **Fallback:** Node pre-seeds a deterministic UCLA meal payload so the card can render while async orchestration runs.
+
+### Custom Agent Runner
+Allows the user to submit an Agentverse address and freeform prompt from the dashboard. Backend validates host + input, rate-limits per user, runs asynchronously, and writes output under `agent_name = custom_agent`.
+
 ---
 
 ## In Scope
 
 - Morning text prompt input
 - Backend prompt parsing + request orchestration (`request_id` + per-agent status tracking)
-- Weather, outfit, music, and energy card pipeline
+- Weather, outfit, music, energy, and meal card pipeline
 - Modular card UI with progressive loading and expandable detail panels
 - Full-screen in-app hourly forecast modal
-- User preference profile (cuisine, music, style preferences stored in Postgres)
+- User preference profile (dietary restrictions, food preferences, music/style preferences stored in Postgres)
+- Optional custom Agentverse run module in dashboard
 - All agents registered on Agentverse
 
 ## Out of Scope (for now)
@@ -146,7 +158,6 @@ Current dashboard includes an `energy` card generated by the Python energy agent
 - Full Spotify recommendations API integration
 - Outfit purchasing / product links
 - Restaurant and wellness card reintegration
-- Grocery/recipe recommendations
 - Wellness integration with wearables (Fitbit, Apple Health)
 - Calendar integration
 - Mobile-responsive UI
@@ -165,8 +176,8 @@ Current dashboard includes an `energy` card generated by the Python energy agent
 ## MVP Definition
 
 The MVP is complete when:
-- A user can type a morning prompt and receive four populated cards (`weather`, `outfit`, `music`, `energy`)
-- Recommendations are internally consistent (e.g., outfit reflects weather and energy/music align with morning context)
+- A user can type a morning prompt and receive five populated cards (`weather`, `outfit`, `music`, `energy`, `meal`)
+- Recommendations are internally consistent (e.g., outfit reflects weather, music/energy align with mood, and meals align with dietary context)
 - All agents are registered on Agentverse
 - The UI has a modular card layout with toggles for each agent
 
@@ -182,4 +193,6 @@ The MVP is complete when:
 2026-04-25 — Dashboard UX now includes progressive card loading states, profile completeness badge, live current-time stat, and ambient background pulse motion.
 2026-04-26 — Weather detail now includes a full-screen in-app hourly forecast modal backed by `/weather/hourly`.
 2026-04-26 — Map preview support added via backend `/maps/preview-image` endpoint using Mapbox.
-2026-04-26 — Active dashboard card set standardized to `weather`, `outfit`, `music`, `energy`.
+2026-04-26 — Active dashboard card set expanded to `weather`, `outfit`, `music`, `energy`, `meal`.
+2026-04-26 — Profile model split dietary inputs into `dietary_profile` and `food_preferences` for stronger meal personalization.
+2026-04-26 — Custom Agentverse runner added to session flow (`/session/:id/custom-agent/run`) with host allowlist + cooldown.

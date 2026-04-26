@@ -42,6 +42,7 @@ model users {
   morning_focus      String?
   routine_notes      String?
   dietary_profile    String?
+  food_preferences   String?
   music_profile      String?
   style_profile      String?
   created_at         DateTime               @default(now())

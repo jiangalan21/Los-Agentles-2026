@@ -13,9 +13,18 @@ export type MealWindow = {
   dishes: DishItem[]
 }
 
+export type DiningLocationMenu = {
+  name: string
+  breakfast: MealWindow
+  lunch: MealWindow
+  dinner: MealWindow
+}
+
 export type UCLAMenuSnapshot = {
   date: string
   diningHall: string
+  diningHalls: string[]
+  locations: DiningLocationMenu[]
   breakfast: MealWindow
   lunch: MealWindow
   dinner: MealWindow
@@ -64,19 +73,40 @@ function parseMenuHtml(html: string): UCLAMenuSnapshot {
       .replace(/.*menu for/i, '')
       .trim() || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
-  // Identify the first dining hall section (usually De Neve or Bruin Plate)
-  const diningHall =
-    $('h3')
-      .filter((_, el) => /de neve|bruin plate|feast|epicuria/i.test($(el).text()))
-      .first()
-      .text()
-      .trim() || 'De Neve Dining'
+  const hallHeadingSelector = 'h2, h3, h4'
+  const hallHeadings = $(hallHeadingSelector).filter((_, el) => isDiningLocationHeading($(el).text()))
 
-  const breakfast = extractMealWindow($, 'breakfast')
-  const lunch = extractMealWindow($, 'lunch')
-  const dinner = extractMealWindow($, 'dinner')
+  const locations: DiningLocationMenu[] = []
+  hallHeadings.each((index, el) => {
+    const heading = $(el)
+    const name = heading.text().trim()
+    if (!name) return
 
-  return { date: dateText, diningHall, breakfast, lunch, dinner }
+    const nextHeading = hallHeadings.eq(index + 1)
+    const sectionNodes = nextHeading.length ? heading.nextUntil(nextHeading) : heading.nextAll()
+    const sectionHtml = sectionNodes.toString()
+    const section$ = cheerio.load(`<section>${sectionHtml}</section>`)
+
+    locations.push({
+      name,
+      breakfast: extractMealWindow(section$, 'breakfast'),
+      lunch: extractMealWindow(section$, 'lunch'),
+      dinner: extractMealWindow(section$, 'dinner'),
+    })
+  })
+
+  const aggregatedBreakfast = dedupeDishes(locations.flatMap((location) => location.breakfast.dishes))
+  const aggregatedLunch = dedupeDishes(locations.flatMap((location) => location.lunch.dishes))
+  const aggregatedDinner = dedupeDishes(locations.flatMap((location) => location.dinner.dishes))
+
+  // Fallback to previous page-wide extraction if no location sections were detected.
+  const breakfast = locations.length ? { dishes: aggregatedBreakfast } : extractMealWindow($, 'breakfast')
+  const lunch = locations.length ? { dishes: aggregatedLunch } : extractMealWindow($, 'lunch')
+  const dinner = locations.length ? { dishes: aggregatedDinner } : extractMealWindow($, 'dinner')
+  const diningHalls = locations.map((location) => location.name)
+  const diningHall = diningHalls[0] ?? 'UCLA Dining'
+
+  return { date: dateText, diningHall, diningHalls, locations, breakfast, lunch, dinner }
 }
 
 function extractMealWindow($: cheerio.CheerioAPI, period: 'breakfast' | 'lunch' | 'dinner'): MealWindow {
@@ -94,7 +124,7 @@ function extractMealWindow($: cheerio.CheerioAPI, period: 'breakfast' | 'lunch' 
   // Walk siblings until the next period heading or end
   let node = heading.next()
   while (node.length) {
-    const tag = node[0].type === 'tag' ? (node[0] as cheerio.Element & { name: string }).name : ''
+    const tag = node[0].type === 'tag' ? ((node[0] as { name?: string }).name ?? '') : ''
     // Stop at the next major heading (another meal period)
     if (/^h[2-4]$/.test(tag) && /breakfast|lunch|dinner/i.test(node.text())) {
       break
@@ -126,4 +156,22 @@ function extractMealWindow($: cheerio.CheerioAPI, period: 'breakfast' | 'lunch' 
   }
 
   return { dishes }
+}
+
+function isDiningLocationHeading(text: string): boolean {
+  const label = text.toLowerCase().trim()
+  if (!label) return false
+  return /(de neve|bruin plate|epicuria|feast|bcafe|cafe 1919|the study|rendezvous|rende|ucla dining)/i.test(label)
+}
+
+function dedupeDishes(dishes: DishItem[]): DishItem[] {
+  const seen = new Set<string>()
+  const deduped: DishItem[] = []
+  for (const dish of dishes) {
+    const key = `${dish.name.toLowerCase()}::${dish.recipeId ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(dish)
+  }
+  return deduped
 }
