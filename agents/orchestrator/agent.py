@@ -191,8 +191,11 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
         outfit_payload["mood"] = parsed.mood
     if parsed.stress_level:
         outfit_payload["stress_level"] = parsed.stress_level
-    if parsed.schedule_notes:
-        outfit_payload["schedule_notes"] = parsed.schedule_notes
+    outfit_schedule = parsed.schedule_notes or ""
+    if routine_notes:
+        outfit_schedule = f"{outfit_schedule}. {routine_notes}".strip(". ")
+    if outfit_schedule:
+        outfit_payload["schedule_notes"] = outfit_schedule
     style_profile = req.user_context.get("style_profile")
     if style_profile:
         outfit_payload["style_profile"] = style_profile
@@ -233,6 +236,7 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
         print(f"[orchestrator] Music agent error: {music_data} — using fallback")
         music_data = dict(_MUSIC_FALLBACK)
 
+    routine_notes = req.user_context.get("routine_notes", "") or ""
     energy_payload: dict = {
         "prompt": req.prompt,
         "mood": parsed.mood,
@@ -244,8 +248,12 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
     }
     if parsed.stress_level:
         energy_payload["stress_level"] = parsed.stress_level
-    if parsed.schedule_notes:
+    if parsed.schedule_notes and routine_notes:
+        energy_payload["schedule_notes"] = f"{parsed.schedule_notes}. {routine_notes}"
+    elif parsed.schedule_notes:
         energy_payload["schedule_notes"] = parsed.schedule_notes
+    elif routine_notes:
+        energy_payload["schedule_notes"] = routine_notes
 
     try:
         # region agent log
@@ -282,9 +290,17 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
     outer_name = outer.get("name", "") if isinstance(outer, dict) else ""
     summary = outfit_data.get("summary", "")
     piece_names = [n for n in [top_name, bottom_name, shoes_name, outer_name] if n]
-    style_label = req.user_context.get("style_profile") or "Today's Look"
+    look_name_candidates = [
+        outfit_data.get("look_name"),
+        outfit_data.get("title"),
+        outfit_data.get("name"),
+        outfit_data.get("fit_name"),
+    ]
+    agent_look_name = next((name.strip() for name in look_name_candidates if isinstance(name, str) and name.strip()), None)
+    style_label = req.user_context.get("style_profile")
+    outfit_title = agent_look_name or style_label or "Today's Look"
     outfit_card = {
-        "value": style_label,
+        "value": outfit_title,
         "detail": " · ".join(piece_names[:2]) if piece_names else "Curated outfit",
         "previewData": summary or " · ".join(piece_names),
         "items": {k: outfit_data.get(k) for k in ["top", "bottom", "shoes", "outer"]},

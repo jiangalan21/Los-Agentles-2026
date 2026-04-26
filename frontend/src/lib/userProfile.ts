@@ -3,21 +3,23 @@ export type UserProfile = {
   location: string
   morningFocus: string
   routineNotes: string
-  dietaryPreferences: string
   musicPreferences: string
   stylePreferences: string
+  wakeTime: string       // HH:MM — anchors the energy curve
+  energyBaseline: string // '1'–'10' — shapes peak/dip windows
 }
 
 const PROFILE_STORAGE = 'dayger_user_profile'
 
 const DEFAULT_PROFILE: UserProfile = {
-  name: 'Alex',
+  name: '',
   location: 'Los Angeles',
-  morningFocus: 'Stay calm and focused for classes',
-  routineNotes: 'I usually leave home at 8:30 AM and like quick recommendations.',
-  dietaryPreferences: 'Ramen, comfort food',
-  musicPreferences: 'Pop, lo-fi',
-  stylePreferences: 'Casual, layered',
+  morningFocus: '',
+  routineNotes: '',
+  musicPreferences: 'pop, lo-fi',
+  stylePreferences: 'casual, layered',
+  wakeTime: '07:00',
+  energyBaseline: '7',
 }
 
 export function getUserProfile(): UserProfile {
@@ -28,11 +30,11 @@ export function getUserProfile(): UserProfile {
   }
 
   try {
-    const parsed = JSON.parse(stored) as Partial<UserProfile>
-    return {
-      ...DEFAULT_PROFILE,
-      ...parsed,
-    }
+    const parsed = JSON.parse(stored) as Partial<UserProfile> & { dietaryPreferences?: string }
+    // Drop any legacy dietaryPreferences key
+    const { dietaryPreferences: _dropped, ...rest } = parsed
+    void _dropped
+    return { ...DEFAULT_PROFILE, ...rest }
   } catch {
     return DEFAULT_PROFILE
   }
@@ -54,8 +56,9 @@ export function buildPromptFromProfile(profile: UserProfile): string {
   if (profile.morningFocus) parts.push(profile.morningFocus)
   if (profile.routineNotes) parts.push(profile.routineNotes)
   if (profile.location) parts.push(`Location: ${profile.location}`)
+  if (profile.wakeTime) parts.push(`Wake time: ${profile.wakeTime}`)
+  if (profile.energyBaseline) parts.push(`Energy baseline: ${profile.energyBaseline}/10`)
   if (profile.musicPreferences) parts.push(`Music preferences: ${profile.musicPreferences}`)
-  if (profile.dietaryPreferences) parts.push(`Dietary preferences: ${profile.dietaryPreferences}`)
   if (profile.stylePreferences) parts.push(`Style preferences: ${profile.stylePreferences}`)
   return parts.length > 0 ? parts.join('. ') : 'Standard morning routine.'
 }

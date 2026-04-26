@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma'
 import { requireAnonUser } from '../middleware/anonAuth'
 
 const router = Router()
-const REQUEST_AGENTS = ['weather', 'outfit', 'music', 'energy']
+const REQUEST_AGENTS = ['weather', 'outfit', 'music', 'energy', 'meal']
 
 router.post('/', requireAnonUser, async (req, res) => {
   if (!req.user) {

@@ -19,6 +19,7 @@ import {
   createRequest,
   createSession,
   type EnergyAgentOutput,
+  type ProfilePayload,
   getHourlyForecast,
   getProfile,
   getRecentSessions,
@@ -26,6 +27,7 @@ import {
   getSession,
   getWeatherMapPreviewUrl,
   regenerateMusicForSession,
+  regenerateOutfitForSession,
   savePreferences,
   saveProfile as saveProfileApi,
   sendFeedback,
@@ -303,6 +305,14 @@ export function DashboardView() {
     },
   })
 
+  const regenerateOutfitMutation = useMutation({
+    mutationFn: () => regenerateOutfitForSession(userKey, sessionId as string),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['session', sessionId, userKey] })
+      void sendFeedback({ userKey, sessionId: sessionId ?? undefined, agentName: 'outfit', signal: 'regenerated' })
+    },
+  })
+
   const sessionQuery = useQuery({
     queryKey: ['session', sessionId, userKey],
     queryFn: () => getSession(userKey, sessionId as string),
@@ -368,10 +378,17 @@ export function DashboardView() {
       return
     }
 
-    const remoteProfile = profileQuery.data.profile
+    // Drop any legacy fields the backend may still return (e.g. dietaryPreferences)
+    const { name, location, morningFocus, routineNotes, musicPreferences, stylePreferences } =
+      profileQuery.data.profile as ProfilePayload & Record<string, unknown>
     setProfile((current) => ({
       ...current,
-      ...remoteProfile,
+      name: name ?? current.name,
+      location: location ?? current.location,
+      morningFocus: morningFocus ?? current.morningFocus,
+      routineNotes: routineNotes ?? current.routineNotes,
+      musicPreferences: musicPreferences ?? current.musicPreferences,
+      stylePreferences: stylePreferences ?? current.stylePreferences,
     }))
   }, [profileQuery.data?.profile])
 
@@ -396,7 +413,6 @@ export function DashboardView() {
 
   useEffect(() => {
     void savePreferences(userKey, {
-      cuisine: splitPreferenceList(profile.dietaryPreferences),
       music: splitPreferenceList(profile.musicPreferences),
       style: splitPreferenceList(profile.stylePreferences),
       agentsEnabled: {
@@ -408,7 +424,7 @@ export function DashboardView() {
     }).catch((error) => {
       console.warn('[preferences] autosave failed:', error)
     })
-  }, [profile.dietaryPreferences, profile.musicPreferences, profile.stylePreferences, userKey])
+  }, [profile.musicPreferences, profile.stylePreferences, userKey])
 
   const outputsByAgent = useMemo(() => {
     const outputs = sessionQuery.data?.outputs ?? []
@@ -508,16 +524,29 @@ export function DashboardView() {
       }) | undefined
 
       const items = outfitOutput?.items
-      const dynamicFields: Array<{ key: string; value: string }> = []
-      if (items?.top) dynamicFields.push({ key: 'Top', value: `${items.top.name} — ${items.top.reason}` })
-      if (items?.bottom) dynamicFields.push({ key: 'Bottom', value: `${items.bottom.name} — ${items.bottom.reason}` })
-      if (items?.shoes) dynamicFields.push({ key: 'Shoes', value: `${items.shoes.name} — ${items.shoes.reason}` })
-      if (items?.outer) dynamicFields.push({ key: 'Outer', value: `${items.outer.name} — ${items.outer.reason}` })
+      const dynamicFields: Array<{ key: string; value: string }> = [
+        {
+          key: 'Top',
+          value: items?.top ? `${items.top.name} — ${items.top.reason}` : 'No recommendation yet',
+        },
+        {
+          key: 'Bottom',
+          value: items?.bottom ? `${items.bottom.name} — ${items.bottom.reason}` : 'No recommendation yet',
+        },
+        {
+          key: 'Shoes',
+          value: items?.shoes ? `${items.shoes.name} — ${items.shoes.reason}` : 'No recommendation yet',
+        },
+        {
+          key: 'Outerwear',
+          value: items?.outer ? `${items.outer.name} — ${items.outer.reason}` : 'No outer layer needed',
+        },
+      ]
 
       return {
         ...selectedCard,
-        subtitle: outfitOutput?.previewData ?? selectedCard.previewData,
-        fields: dynamicFields.length > 0 ? dynamicFields : selectedCard.fields,
+        subtitle: '',
+        fields: dynamicFields,
       }
     }
 
@@ -529,7 +558,7 @@ export function DashboardView() {
 
       return {
         ...selectedCard,
-        subtitle: musicOutput?.previewData ?? selectedCard.previewData,
+        subtitle: '',
         actions: ['Regenerate Queue'],
         fields: [
           { key: 'Vibe', value: musicOutput?.detail ?? selectedCard.detail },
@@ -596,8 +625,6 @@ export function DashboardView() {
       profile.name,
       profile.location,
       profile.morningFocus,
-      profile.routineNotes,
-      profile.dietaryPreferences,
       profile.musicPreferences,
       profile.stylePreferences,
     ]
@@ -650,7 +677,14 @@ export function DashboardView() {
   const saveProfile = (nextProfile: UserProfile) => {
     setProfile(nextProfile)
     saveUserProfile(nextProfile)
-    void saveProfileApi(userKey, nextProfile).catch(() => {
+    void saveProfileApi(userKey, {
+      name: nextProfile.name,
+      location: nextProfile.location,
+      morningFocus: nextProfile.morningFocus,
+      routineNotes: nextProfile.routineNotes,
+      musicPreferences: nextProfile.musicPreferences,
+      stylePreferences: nextProfile.stylePreferences,
+    }).catch(() => {
       setSessionError('Profile saved locally, but syncing to server failed.')
     })
     setIsProfileOpen(false)
@@ -774,6 +808,7 @@ export function DashboardView() {
                 previewData={enrichedCards[0].previewData}
                 onClick={() => setSelectedCardId(enrichedCards[0].id)}
                 isLoading={!completedAgents.has(enrichedCards[0].id)}
+                isSelected={selectedCardId === enrichedCards[0].id}
               />
               <div className="translate-y-[20px]">
                 <DashboardCard
@@ -787,7 +822,9 @@ export function DashboardView() {
                   feedbackState={feedbackStateByAgent[enrichedCards[1].id] ?? null}
                   onLike={() => submitThumbFeedback(enrichedCards[1].id, 'liked')}
                   onDislike={() => submitThumbFeedback(enrichedCards[1].id, 'disliked')}
-                  isLoading={!completedAgents.has(enrichedCards[1].id)}
+                  onRegenerate={sessionId ? () => regenerateOutfitMutation.mutate() : undefined}
+                  isLoading={!completedAgents.has(enrichedCards[1].id) || regenerateOutfitMutation.isPending}
+                  isSelected={selectedCardId === enrichedCards[1].id}
                 />
               </div>
               <div className="translate-y-[20px]">
@@ -802,6 +839,7 @@ export function DashboardView() {
                   onDislike={() => submitThumbFeedback('music', 'disliked')}
                   onRegenerate={sessionId ? () => regenerateMusicMutation.mutate() : undefined}
                   onClick={() => setSelectedCardId(enrichedCards[2].id)}
+                  isSelected={selectedCardId === enrichedCards[2].id}
                 />
               </div>
               <DashboardCard
@@ -819,6 +857,7 @@ export function DashboardView() {
                 energyCurve={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.energyCurve}
                 energyWindows={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.energyWindows ?? null}
                 quoteText={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.quote?.text}
+                isSelected={selectedCardId === enrichedCards[3].id}
               />
             </div>
 
@@ -856,6 +895,7 @@ export function DashboardView() {
                     accent={(selectedCardPanel ?? selectedCard).accent}
                     label={(selectedCardPanel ?? selectedCard).label}
                     title={(selectedCardPanel ?? selectedCard).value}
+                    layoutVariant={selectedCard.id === 'outfit' ? 'outfit' : 'default'}
                     titleClassName={selectedCard.id === 'music' ? 'text-4xl xl:text-5xl break-words' : undefined}
                     subtitle={(selectedCardPanel ?? selectedCard).subtitle}
                     icon={(selectedCardPanel ?? selectedCard).icon}

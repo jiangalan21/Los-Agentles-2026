@@ -59,7 +59,6 @@ export type ProfilePayload = {
   location: string
   morningFocus: string
   routineNotes: string
-  dietaryPreferences: string
   musicPreferences: string
   stylePreferences: string
 }
@@ -117,7 +116,7 @@ export async function getRequest(
 export async function savePreferences(
   userKey: string,
   payload: {
-    cuisine: string[]
+    cuisine?: string[]
     music: string[]
     style: string[]
     agentsEnabled: Record<string, boolean>
@@ -149,6 +148,16 @@ export async function regenerateMusicForSession(
   sessionId: string,
 ): Promise<{ ok: boolean; output: SessionOutput['output'] }> {
   return request<{ ok: boolean; output: SessionOutput['output'] }>(`/session/${sessionId}/regenerate/music`, {
+    method: 'POST',
+    userKey,
+  })
+}
+
+export async function regenerateOutfitForSession(
+  userKey: string,
+  sessionId: string,
+): Promise<{ ok: boolean; output: SessionOutput['output'] }> {
+  return request<{ ok: boolean; output: SessionOutput['output'] }>(`/session/${sessionId}/regenerate/outfit`, {
     method: 'POST',
     userKey,
   })

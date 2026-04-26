@@ -1,0 +1,134 @@
+ERROR:    [Errno 10048] error while attempting to bind on address ('0.0.0.0', 8002): [winerror 10048] only one usage of each socket address (protocol/network address/port) is normally permitted
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task cancelling name='Task-15' coro=<staggered_race.<locals>.run_one_coro() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohappyeyeballs\_staggered.py:132> wait_for=<_OverlappedFuture cancelled>>
+Exception ignored in: <coroutine object TCPConnector._wrap_create_connection at 0x0000028B500C5800>
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohttp\connector.py", line 1310, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohappyeyeballs\impl.py", line 87, in start_connection
+    sock, _, _ = await _staggered.staggered_race(
+RuntimeError: coroutine ignored GeneratorExit
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task cancelling name='Task-16' coro=<staggered_race.<locals>.run_one_coro() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohappyeyeballs\_staggered.py:132> wait_for=<_OverlappedFuture cancelled>>
+Exception ignored in: <coroutine object TCPConnector._wrap_create_connection at 0x0000028B500C4B80>
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohttp\connector.py", line 1310, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohappyeyeballs\impl.py", line 87, in start_connection
+    sock, _, _ = await _staggered.staggered_race(
+RuntimeError: coroutine ignored GeneratorExit
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task cancelling name='Task-18' coro=<staggered_race.<locals>.run_one_coro() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohappyeyeballs\_staggered.py:132> wait_for=<_OverlappedFuture cancelled>>
+Exception ignored in: <coroutine object TCPConnector._wrap_create_connection at 0x0000028B500C6C00>
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohttp\connector.py", line 1310, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohappyeyeballs\impl.py", line 87, in start_connection
+    sock, _, _ = await _staggered.staggered_race(
+RuntimeError: coroutine ignored GeneratorExit
+ERROR:asyncio:Task exception was never retrieved
+future: <Task finished name='Task-10' coro=<Agent.start_server() done, defined at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py:1325> exception=SystemExit(1)>
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uvicorn\server.py", line 172, in startup
+    server = await loop.create_server(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "C:\Python313\Lib\asyncio\base_events.py", line 1615, in create_server
+    raise OSError(err.errno, msg) from None
+OSError: [Errno 10048] error while attempting to bind on address ('0.0.0.0', 8002): [winerror 10048] only one usage of each socket address (protocol/network address/port) is normally permitted
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "c:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\outfit\agent.py", line 462, in <module>
+    agent.run()
+    ~~~~~~~~~^^
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py", line 1390, in run
+    self._loop.run_until_complete(self.run_async())
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\asyncio\base_events.py", line 707, in run_until_complete
+    self.run_forever()
+    ~~~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\asyncio\base_events.py", line 678, in run_forever
+    self._run_once()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\asyncio\base_events.py", line 2033, in _run_once
+    handle._run()
+    ~~~~~~~~~~~^^
+  File "C:\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py", line 1334, in start_server
+    await self._server.serve()
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\asgi.py", line 198, in serve
+    await self._server.serve()
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uvicorn\server.py", line 79, in serve
+    await self._serve(sockets)
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uvicorn\server.py", line 94, in _serve
+    await self.startup(sockets=sockets)
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uvicorn\server.py", line 182, in startup
+    sys.exit(1)
+    ~~~~~~~~^^^
+SystemExit: 1
+C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py:1366: RuntimeWarning: coroutine 'Agent._shutdown' was never awaited
+  self._logger.exception(f"Error during shutdown: {ex}")
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+Exception ignored in: <coroutine object Agent.run_async at 0x0000028B4FD9FC40>
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py", line 1376, in run_async
+    task.cancel()
+  File "C:\Python313\Lib\asyncio\base_events.py", line 828, in call_soon
+    self._check_closed()
+  File "C:\Python313\Lib\asyncio\base_events.py", line 551, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task pending name='Task-1' coro=<Agent.publish_manifest() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py:1119> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task pending name='Task-2' coro=<Agent.publish_manifest() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py:1119> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task pending name='Task-9' coro=<Agent.run_startup_tasks() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py:1289> wait_for=<Future pending cb=[Task.task_wakeup()]> cb=[Agent.setup.<locals>.<lambda>() at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py:1268]>
+Exception ignored in: <coroutine object Agent.publish_manifest at 0x0000028B4FDB2DF0>
+RuntimeError: coroutine ignored GeneratorExit
+Exception ignored in: <coroutine object Agent.publish_manifest at 0x0000028B4FDB2F00>
+RuntimeError: coroutine ignored GeneratorExit
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task pending name='Task-6' coro=<Agent._schedule_registration() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py:895> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task pending name='Task-7' coro=<Dispenser.run() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\communication.py:85> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task cancelling name='Task-8' coro=<Agent._process_message_queue() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py:1553> wait_for=<Future cancelled>>
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task cancelling name='Task-17' coro=<staggered_race.<locals>.run_one_coro() running at C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\aiohappyeyeballs\_staggered.py:132> wait_for=<_OverlappedFuture cancelled>>
+--- Logging error ---
+--- Logging error ---
+--- Logging error ---
+--- Logging error ---
+Exception ignored in: <coroutine object Agent._schedule_registration at 0x0000028B5006B920>
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py", line 906, in _schedule_registration
+  File "C:\Python313\Lib\logging\__init__.py", line 1519, in info
+  File "C:\Python313\Lib\logging\__init__.py", line 1664, in _log
+  File "C:\Python313\Lib\logging\__init__.py", line 1680, in handle
+  File "C:\Python313\Lib\logging\__init__.py", line 1736, in callHandlers
+  File "C:\Python313\Lib\logging\__init__.py", line 1026, in handle
+  File "C:\Python313\Lib\logging\__init__.py", line 1158, in emit
+  File "C:\Python313\Lib\logging\__init__.py", line 1075, in handleError
+  File "C:\Python313\Lib\traceback.py", line 129, in print_exception
+  File "C:\Python313\Lib\traceback.py", line 1044, in __init__
+  File "C:\Python313\Lib\traceback.py", line 492, in _extract_from_extended_frame_gen
+  File "C:\Python313\Lib\traceback.py", line 369, in line
+  File "C:\Python313\Lib\traceback.py", line 350, in _set_lines
+  File "C:\Python313\Lib\linecache.py", line 25, in getline
+  File "C:\Python313\Lib\linecache.py", line 41, in getlines
+  File "C:\Python313\Lib\linecache.py", line 88, in updatecache
+ImportError: sys.meta_path is None, Python is likely shutting down
+Exception ignored in: <coroutine object Dispenser.run at 0x0000028B4FDB3120>
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\communication.py", line 85, in run
+  File "C:\Python313\Lib\asyncio\queues.py", line 188, in get
+  File "C:\Python313\Lib\asyncio\base_events.py", line 828, in call_soon
+  File "C:\Python313\Lib\asyncio\base_events.py", line 551, in _check_closed
+RuntimeError: Event loop is closed

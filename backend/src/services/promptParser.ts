@@ -8,6 +8,7 @@ export async function parsePrompt(
   userContext: UserContextSummary,
   requestId?: string
 ): Promise<DayContext> {
+  const city = userContext?.profileSnapshot?.location?.trim() || 'Los Angeles'
   return {
     userId,
     sessionId,
@@ -17,7 +18,7 @@ export async function parsePrompt(
     energyLevel: inferEnergy(prompt),
     wakeTime: inferWakeTime(prompt),
     events: inferEvents(prompt),
-    location: { lat: 34.0522, lon: -118.2437, city: 'Los Angeles' },
+    location: { lat: 34.0522, lon: -118.2437, city },
     preferences: userContext.preferenceHints,
     userContext,
     weather: {
@@ -32,6 +33,9 @@ export async function parsePrompt(
 export function inferWakeTime(prompt: string): string | null {
   const normalizedPrompt = prompt.toLowerCase()
   const wakeTimePatterns = [
+    // Profile-injected format: "Wake time: 07:30"
+    /\bwake\s+time\s*:\s*(\d{1,2}):(\d{2})/i,
+    // Natural language
     /\bwoke up at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
     /\bwoke at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
     /\bup since\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
@@ -78,6 +82,13 @@ function inferMood(prompt: string): string {
 }
 
 function inferEnergy(prompt: string): number {
+  // Profile-injected format: "Energy baseline: 8/10"
+  const baselineMatch = prompt.match(/energy\s+baseline\s*:\s*(\d{1,2})\s*\/\s*10/i)
+  if (baselineMatch) {
+    const level = Number.parseInt(baselineMatch[1], 10)
+    if (Number.isFinite(level) && level >= 1 && level <= 10) return level
+  }
+
   const normalizedPrompt = prompt.toLowerCase()
   if (normalizedPrompt.includes('tired')) return 4
   if (normalizedPrompt.includes('stressed')) return 6

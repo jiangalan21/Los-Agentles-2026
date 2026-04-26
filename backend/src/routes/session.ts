@@ -8,6 +8,7 @@ import { buildUserContext } from '../services/userContext'
 
 const router = Router()
 const MUSIC_AGENT_URL = process.env.MUSIC_AGENT_URL ?? 'http://localhost:8003/run'
+const OUTFIT_AGENT_URL = process.env.OUTFIT_AGENT_URL ?? 'http://localhost:8002/run'
 
 // POST /session — create session and trigger prompt parsing
 router.post('/', requireAnonUser, async (req, res) => {
@@ -205,6 +206,118 @@ router.post('/:id/regenerate/music', requireAnonUser, async (req, res) => {
     console.error('[regenerate/music] error:', error)
     return res.status(500).json({
       error: 'music regeneration failed',
+      detail: error instanceof Error ? error.message : 'Unknown error',
+    })
+  }
+})
+
+// POST /session/:id/regenerate/outfit — re-run outfit agent for an existing session
+router.post('/:id/regenerate/outfit', requireAnonUser, async (req, res) => {
+  const sessionId = req.params.id
+  const user = req.user
+  if (!sessionId || !user) return res.status(400).json({ error: 'session id is required' })
+
+  try {
+    const session = await prisma.sessions.findFirst({
+      where: { id: sessionId, user_id: user.id },
+      include: {
+        agent_outputs: {
+          where: { agent_name: 'weather' },
+          orderBy: { created_at: 'asc' },
+          take: 1,
+        },
+      },
+    })
+    if (!session) return res.status(404).json({ error: 'session not found' })
+
+    const dayCtx = session.day_context as Record<string, unknown> | null
+    const weatherOut = session.agent_outputs[0]?.output as Record<string, unknown> | null
+
+    // Extract weather data — prefer raw fields stored directly on the weather card output
+    let temperatureF: number | null = null
+    let weatherCondition: string | null = null
+    let feelsLikeF: number | null = null
+    let description: string | null = null
+    if (weatherOut) {
+      if (typeof weatherOut.temperature_f === 'number') temperatureF = weatherOut.temperature_f
+      else if (typeof weatherOut.value === 'string') {
+        const m = weatherOut.value.match(/(\d+)/)
+        if (m) temperatureF = parseInt(m[1], 10)
+      }
+      if (typeof weatherOut.condition === 'string') weatherCondition = weatherOut.condition
+      else if (typeof weatherOut.detail === 'string') weatherCondition = weatherOut.detail.split(' · ')[0] ?? null
+      if (typeof weatherOut.feels_like_f === 'number') feelsLikeF = weatherOut.feels_like_f
+      if (typeof weatherOut.description === 'string') description = weatherOut.description
+    }
+
+    // Extract style preferences from stored userContext preferences
+    const userCtx = dayCtx?.userContext as Record<string, unknown> | undefined
+    const prefHints = userCtx?.preferenceHints as Record<string, unknown> | undefined
+    const styleArr = Array.isArray(prefHints?.style) ? (prefHints.style as string[]) : []
+    const styleProfile = styleArr.join(', ') || null
+
+    const events = Array.isArray(dayCtx?.events) ? (dayCtx.events as string[]).join(', ') : null
+
+    const outfitPayload = {
+      temperature_f: temperatureF,
+      condition: weatherCondition,
+      feels_like_f: feelsLikeF,
+      description,
+      mood: typeof dayCtx?.mood === 'string' ? dayCtx.mood : null,
+      schedule_notes: events,
+      style_profile: styleProfile,
+    }
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30_000)
+    let outfitRaw: Record<string, unknown>
+    try {
+      const agentRes = await fetch(OUTFIT_AGENT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(outfitPayload),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+      if (!agentRes.ok) throw new Error(`Outfit agent returned ${agentRes.status}`)
+      outfitRaw = (await agentRes.json()) as Record<string, unknown>
+    } catch (err) {
+      clearTimeout(timeoutId)
+      throw err
+    }
+
+    // Transform raw outfit agent response into card format (mirrors Python orchestrator logic)
+    const topName = (outfitRaw.top as Record<string, string> | undefined)?.name ?? ''
+    const bottomName = (outfitRaw.bottom as Record<string, string> | undefined)?.name ?? ''
+    const shoesName = (outfitRaw.shoes as Record<string, string> | undefined)?.name ?? ''
+    const outerRaw = outfitRaw.outer
+    const outerName = outerRaw && typeof outerRaw === 'object' ? (outerRaw as Record<string, string>).name ?? '' : ''
+    const pieceNames = [topName, bottomName, shoesName, outerName].filter(Boolean)
+    const lookName =
+      [outfitRaw.look_name, outfitRaw.title, outfitRaw.name, outfitRaw.fit_name]
+        .map((v) => (typeof v === 'string' ? v.trim() : ''))
+        .find(Boolean) ?? null
+    const outfitCard = {
+      value: lookName ?? styleProfile ?? "Today's Look",
+      detail: pieceNames.slice(0, 2).join(' · ') || 'Curated outfit',
+      previewData: typeof outfitRaw.summary === 'string' ? outfitRaw.summary : pieceNames.join(' · '),
+      items: { top: outfitRaw.top, bottom: outfitRaw.bottom, shoes: outfitRaw.shoes, outer: outfitRaw.outer },
+    }
+
+    await prisma.agent_outputs.create({
+      data: {
+        session_id: sessionId,
+        request_id: session.request_id,
+        agent_name: 'outfit',
+        output: outfitCard as never,
+      },
+    })
+
+    return res.json({ ok: true, output: outfitCard })
+  } catch (error) {
+    console.error('[regenerate/outfit] error:', error)
+    return res.status(500).json({
+      error: 'outfit regeneration failed',
       detail: error instanceof Error ? error.message : 'Unknown error',
     })
   }

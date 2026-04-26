@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ThumbsDown, ThumbsUp } from 'lucide-react'
+import { RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 import { animation, colors } from '../tokens'
 
@@ -15,9 +15,11 @@ type DashboardCardProps = {
   feedbackState?: 'liked' | 'disliked' | null
   onLike?: () => void
   onDislike?: () => void
+  onRegenerate?: () => void
   energyCurve?: Array<{ timeLabel: string; value: number }>
   energyWindows?: { peakStart?: string; peakEnd?: string; dipStart?: string; dipEnd?: string } | null
   quoteText?: string
+  isSelected?: boolean
 }
 
 export function DashboardCard({
@@ -32,13 +34,18 @@ export function DashboardCard({
   feedbackState = null,
   onLike,
   onDislike,
+  onRegenerate,
   energyCurve,
   energyWindows,
   quoteText,
+  isSelected = false,
 }: DashboardCardProps) {
   const [isHovered, setIsHovered] = useState(false)
+  const isActive = isHovered || isSelected
   const showFeedback = label.toLowerCase() !== 'energy' && Boolean(onLike || onDislike)
+  const isOutfitCard = label.toLowerCase() === 'outfit'
   const shouldShowEnergyInsights = !isLoading && label.toLowerCase() === 'energy' && Array.isArray(energyCurve) && energyCurve.length > 1
+  const outfitPieces = isOutfitCard ? detail.split('·').map((piece) => piece.trim()).filter(Boolean).slice(0, 3) : []
   const chartGeometry = shouldShowEnergyInsights ? buildEnergyGeometry(energyCurve) : null
   const axisTicks =
     chartGeometry && chartGeometry.points.length > 2
@@ -62,23 +69,23 @@ export function DashboardCard({
       tabIndex={0}
       transition={{ duration: animation.standard, ease: 'easeOut' }}
       animate={{
-        y: isHovered ? -8 : 0,
-        borderColor: isHovered ? accent : colors.border,
-        boxShadow: isHovered ? `0 24px 64px ${accent}33` : '0 0 0 rgba(0,0,0,0)',
+        y: isActive ? -8 : 0,
+        borderColor: isActive ? accent : colors.border,
+        boxShadow: isActive ? `0 24px 64px ${accent}33` : '0 0 0 rgba(0,0,0,0)',
       }}
       className={`group relative ${shouldShowEnergyInsights ? 'min-h-[340px]' : 'min-h-[260px]'} overflow-hidden rounded-2xl border-2 bg-card p-8 outline-none focus-visible:border-[var(--focus-accent)] focus-visible:shadow-[0_0_0_2px_rgba(248,248,248,0.12)] ${isLoading ? 'cursor-wait' : 'cursor-pointer'}`}
       style={{ ['--focus-accent' as string]: accent }}
     >
       <motion.span
         aria-hidden
-        animate={{ width: isHovered ? 4 : 2, backgroundColor: accent }}
+        animate={{ width: isActive ? 4 : 2, backgroundColor: accent }}
         transition={{ duration: animation.standard, ease: 'easeOut' }}
         className="absolute left-0 top-0 h-full"
       />
 
       <motion.div
         aria-hidden
-        animate={{ opacity: isHovered ? 0.2 : 0.08, scale: isHovered ? 1.25 : 0.85 }}
+        animate={{ opacity: isActive ? 0.2 : 0.08, scale: isActive ? 1.25 : 0.85 }}
         transition={{ duration: animation.standard, ease: 'easeOut' }}
         className="pointer-events-none absolute -bottom-20 -right-20 h-52 w-52 rounded-full blur-3xl"
         style={{ backgroundColor: accent }}
@@ -88,8 +95,8 @@ export function DashboardCard({
         <div className="flex items-start justify-between">
           <motion.div
             animate={{
-              scale: isHovered ? 1.1 : 1,
-              boxShadow: isHovered ? `0 0 24px ${accent}66` : `0 0 0 ${accent}00`,
+              scale: isActive ? 1.1 : 1,
+              boxShadow: isActive ? `0 0 24px ${accent}66` : `0 0 0 ${accent}00`,
             }}
             transition={{ duration: animation.standard, ease: 'easeOut' }}
             className="flex h-14 w-14 items-center justify-center rounded-xl border-2 text-xl"
@@ -103,7 +110,7 @@ export function DashboardCard({
           </motion.div>
 
           <motion.span
-            animate={{ opacity: isHovered ? 1 : 0, y: isHovered ? 0 : -6 }}
+            animate={{ opacity: isActive ? 1 : 0, y: isActive ? 0 : -6 }}
             transition={{ duration: animation.fast, ease: 'easeOut' }}
             className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/70"
           >
@@ -122,8 +129,27 @@ export function DashboardCard({
             </>
           ) : (
             <>
-              <h3 className="font-display text-5xl font-extrabold leading-[0.95] tracking-[-0.03em]">{value}</h3>
-              <p className="font-body text-base font-medium text-foreground/80">{detail}</p>
+              <h3 className={`font-display font-extrabold leading-[0.95] tracking-[-0.03em] ${isOutfitCard ? 'text-4xl' : 'text-5xl'}`}>
+                {value}
+              </h3>
+              {isOutfitCard ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {outfitPieces.length > 0 ? (
+                    outfitPieces.map((piece) => (
+                      <span
+                        key={piece}
+                        className="rounded-full border border-border/80 bg-muted/40 px-2.5 py-1 font-body text-[10px] font-bold uppercase tracking-[0.1em] text-foreground/70"
+                      >
+                        {piece}
+                      </span>
+                    ))
+                  ) : (
+                    <p className="font-body text-sm font-medium text-foreground/75">{detail}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="font-body text-base font-medium text-foreground/80">{detail}</p>
+              )}
             </>
           )}
         </div>
@@ -183,9 +209,9 @@ export function DashboardCard({
             ) : null}
             {!shouldShowEnergyInsights ? (
               <motion.p
-                animate={{ opacity: isHovered ? 1 : 0, y: isHovered ? 0 : 10 }}
+                animate={{ opacity: isActive ? 1 : 0, y: isActive ? 0 : 10 }}
                 transition={{ duration: animation.standard, ease: 'easeOut' }}
-                className="font-body text-sm font-medium text-foreground/75"
+                className={`font-body font-medium text-foreground/75 ${isOutfitCard ? 'text-xs uppercase tracking-[0.1em]' : 'text-sm'}`}
               >
                 {previewData}
               </motion.p>
@@ -229,13 +255,27 @@ export function DashboardCard({
                 />
               </button>
             ) : null}
+            {onRegenerate ? (
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onRegenerate()
+                }}
+                className="ml-auto rounded-lg border border-border/70 px-2.5 py-2 font-body text-[10px] font-bold uppercase tracking-[0.12em] text-foreground/60 transition-all duration-150 ease-out hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label={`Regenerate ${label}`}
+              >
+                <RefreshCw size={12} />
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
 
       <motion.span
         aria-hidden
-        animate={{ opacity: isHovered ? 1 : 0 }}
+        animate={{ opacity: isActive ? 1 : 0 }}
         transition={{ duration: animation.fast, ease: 'easeOut' }}
         className="absolute bottom-0 left-0 h-px w-full"
         style={{ backgroundColor: accent }}

@@ -1,0 +1,24 @@
+WARNING:  [outfit-agent]: Endpoint configuration overrides mailbox setting.
+INFO:     [outfit-agent]: Starting agent with address: agent1q2cdw6l49wsj6nsug63nd8zuwlx07s3mvgwf95sdf23gnlemmnevxjvsjz2
+INFO:     [outfit-agent]: Agent inspector available at https://agentverse.ai/inspect/?uri=http%3A//127.0.0.1%3A8002&address=agent1q2cdw6l49wsj6nsug63nd8zuwlx07s3mvgwf95sdf23gnlemmnevxjvsjz2
+INFO:     [outfit-agent]: Starting server on http://0.0.0.0:8002 (Press CTRL+C to quit)
+INFO:     [outfit-agent]: Shutting down agent...
+ERROR:    [outfit-agent]: Error during shutdown: no running event loop
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py", line 1352, in run_async
+    await asyncio.gather(*tasks, return_exceptions=True)
+GeneratorExit
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\FireF\Documents\GitHub\Los-Agentles-2026\agents\weather\venv\Lib\site-packages\uagents\agent.py", line 1358, in run_async
+    await asyncio.wait_for(
+        self._shutdown(tasks), timeout=self._shutdown_timeout
+    )
+  File "C:\Python313\Lib\asyncio\tasks.py", line 506, in wait_for
+    async with timeouts.timeout(timeout):
+               ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Python313\Lib\asyncio\timeouts.py", line 161, in timeout
+    loop = events.get_running_loop()
+RuntimeError: no running event loop

@@ -1,5 +1,7 @@
 import { motion } from 'framer-motion'
-import { ThumbsDown, ThumbsUp } from 'lucide-react'
+import { Shirt, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { PiPantsBold } from 'react-icons/pi'
+import { TbJacket, TbShoe } from 'react-icons/tb'
 import { ReactNode, useEffect, useState } from 'react'
 
 type ExpandedPanelProps = {
@@ -8,6 +10,7 @@ type ExpandedPanelProps = {
   title: string
   titleClassName?: string
   subtitle: string
+  layoutVariant?: 'default' | 'outfit'
   icon: ReactNode
   fields: Array<{ key: string; value: string }>
   actions: Array<string | { label: string; href?: string }>
@@ -32,6 +35,7 @@ export function ExpandedPanel({
   title,
   titleClassName,
   subtitle,
+  layoutVariant = 'default',
   icon,
   fields,
   actions,
@@ -52,6 +56,7 @@ export function ExpandedPanel({
   }, [heroImageUrl])
 
   const shouldShowHeroImage = Boolean(heroImageUrl && !hasHeroImageError)
+  const isOutfitLayout = layoutVariant === 'outfit'
   const showEnergyInsights = Boolean(
     energyInsights && (energyInsights.energyCurve?.length || energyInsights.wellnessTips?.length || energyInsights.quote?.text),
   )
@@ -70,11 +75,13 @@ export function ExpandedPanel({
               {label}
             </p>
             <h2
-              className={`mt-2 font-display font-extrabold leading-[0.95] tracking-[-0.04em] ${titleClassName ?? 'text-6xl'}`}
+              className={`mt-2 font-display font-extrabold leading-[0.95] tracking-[-0.04em] ${
+                titleClassName ?? (isOutfitLayout ? 'text-3xl xl:text-4xl' : 'text-6xl')
+              }`}
             >
               {title}
             </h2>
-            <p className="mt-2 font-body text-base text-foreground/75">{subtitle}</p>
+            {!isOutfitLayout && subtitle ? <p className="mt-2 font-body text-base text-foreground/75">{subtitle}</p> : null}
           </div>
 
           <button
@@ -114,7 +121,7 @@ export function ExpandedPanel({
         style={{ ['--scroll-accent' as string]: accent }}
       >
         {/* Hero block — replaced by energy graph when curve data is available */}
-        {showEnergyInsights && energyInsights?.energyCurve && energyInsights.energyCurve.length > 1 ? (
+        {!isOutfitLayout && showEnergyInsights && energyInsights?.energyCurve && energyInsights.energyCurve.length > 1 ? (
           <div
             className="w-full overflow-hidden rounded-2xl border-2 p-5"
             style={{
@@ -136,7 +143,7 @@ export function ExpandedPanel({
               />
             </svg>
           </div>
-        ) : (
+        ) : !isOutfitLayout ? (
           <div
             className="flex aspect-square max-h-[340px] w-full items-center justify-center overflow-hidden rounded-2xl border-2 text-8xl"
             style={{
@@ -156,7 +163,7 @@ export function ExpandedPanel({
               icon
             )}
           </div>
-        )}
+        ) : null}
 
         {/* Quote — shown prominently right after the graph for energy */}
         {showEnergyInsights && energyInsights?.quote?.text ? (
@@ -198,21 +205,55 @@ export function ExpandedPanel({
           </div>
         ) : null}
 
-        {fields.map((field) => (
-          <motion.div
-            key={field.key}
-            whileHover={{ borderColor: `${accent}99`, y: -2 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="rounded-xl border border-border bg-muted/40 px-4 py-4"
-          >
-            <p className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/65">
-              {field.key}
-            </p>
-            <p className="mt-2 font-body text-base font-medium text-foreground">{field.value}</p>
-          </motion.div>
-        ))}
+        {isOutfitLayout ? (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {fields.map((field) => {
+              const [itemName, ...reasonParts] = field.value.split(' — ')
+              const reason = reasonParts.join(' — ')
+              const ItemIcon =
+                field.key === 'Top'
+                  ? Shirt
+                  : field.key === 'Bottom'
+                    ? PiPantsBold
+                    : field.key === 'Shoes'
+                      ? TbShoe
+                      : TbJacket
+              return (
+                <motion.div
+                  key={field.key}
+                  whileHover={{ borderColor: `${accent}99`, y: -2 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                  className="rounded-xl border border-border bg-muted/40 px-4 py-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md border border-border/80 bg-background/40 p-1.5 text-foreground/70">
+                      <ItemIcon size={14} />
+                    </span>
+                    <p className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/65">{field.key}</p>
+                  </div>
+                  <p className="mt-2 font-display text-xl font-extrabold leading-tight tracking-[-0.02em] text-foreground">{itemName || 'No recommendation yet'}</p>
+                  {reason ? <p className="mt-2 font-body text-sm text-foreground/75">{reason}</p> : null}
+                </motion.div>
+              )
+            })}
+          </div>
+        ) : (
+          fields.map((field) => (
+            <motion.div
+              key={field.key}
+              whileHover={{ borderColor: `${accent}99`, y: -2 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="rounded-xl border border-border bg-muted/40 px-4 py-4"
+            >
+              <p className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/65">
+                {field.key}
+              </p>
+              <p className="mt-2 font-body text-base font-medium text-foreground">{field.value}</p>
+            </motion.div>
+          ))
+        )}
 
-        {actions.length > 0 ? (
+        {!isOutfitLayout && actions.length > 0 ? (
           <div className="space-y-3">
             {actions.map((action) => {
             const actionLabel = typeof action === 'string' ? action : action.label
