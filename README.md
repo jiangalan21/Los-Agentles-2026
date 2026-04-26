@@ -38,8 +38,9 @@ cp .env.example .env
 Generate Prisma client (requires `DATABASE_URL` set):
 ```bash
 npx prisma generate
-npx prisma migrate dev
 ```
+
+Apply schema changes with your preferred migration flow for your environment.
 
 ---
 
@@ -81,11 +82,11 @@ python agent.py
 ## Project Structure
 
 ```
-/frontend        React + Vite + Tailwind + shadcn/ui + Zustand + TanStack Query
+/frontend        React + Vite + Tailwind + Framer Motion + TanStack Query
 /backend         Node + Express + TypeScript + Prisma
   /src
-    /routes      session.ts, preferences.ts
-    /services    promptParser.ts, agentOrchestrator.ts
+    /routes      session.ts, preferences.ts, feedback.ts, profile.ts, request.ts
+    /services    promptParser.ts, agentOrchestrator.ts, userContext.ts, users.ts
     /types       dayContext.ts
   /prisma        schema.prisma
 /agents
@@ -106,5 +107,7 @@ python agent.py
 |------|-----|-------------|
 | `backend/.env` | `DATABASE_URL` | Supabase PostgreSQL connection string |
 | `backend/.env` | `ANTHROPIC_API_KEY` | Anthropic API key |
+| `backend/.env` | `OPENWEATHER_API_KEY` | OpenWeatherMap API key for weather service |
+| `backend/.env` | `YELP_API_KEY` | Yelp Fusion API key for restaurant service |
 | `agents/weather/.env` | `OPEN_WEATHER_API` | OpenWeatherMap API key |
 | `agents/weather/.env` | `AGENTVERSE_API` | Fetch.ai Agentverse API key |
