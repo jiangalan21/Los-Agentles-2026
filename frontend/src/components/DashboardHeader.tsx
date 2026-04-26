@@ -3,11 +3,12 @@ import { Logo } from './Logo'
 
 type DashboardHeaderProps = {
   userName?: string
+  userLocation?: string
 }
 
 const navItems = ['Weather', 'Outfit', 'Music', 'Energy']
 
-export function DashboardHeader({ userName = 'Alex' }: DashboardHeaderProps) {
+export function DashboardHeader({ userName = 'Alex', userLocation = 'Los Angeles' }: DashboardHeaderProps) {
   const now = new Date()
   const timeText = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   const dateText = now.toLocaleDateString([], {
@@ -44,7 +45,9 @@ export function DashboardHeader({ userName = 'Alex' }: DashboardHeaderProps) {
         </div>
 
         <div className="text-right">
-          <p className="font-body text-lg font-medium text-foreground/75">{dateText}</p>
+          <p className="font-body text-lg font-medium text-foreground/75">
+            {dateText} · {userLocation}
+          </p>
           <h1
             className="font-display font-extrabold leading-[0.92] tracking-[-0.04em] text-foreground"
             style={{ fontSize: 'clamp(4rem, 8vw, 8rem)' }}

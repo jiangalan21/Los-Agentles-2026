@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import { ReactNode } from 'react'
 
 type ExpandedPanelProps = {
@@ -11,6 +12,10 @@ type ExpandedPanelProps = {
   actions: string[]
   updatedAt: string
   onClose: () => void
+  onActionClick?: (action: string) => void
+  feedbackState?: 'liked' | 'disliked' | null
+  onLike?: () => void
+  onDislike?: () => void
 }
 
 export function ExpandedPanel({
@@ -23,6 +28,10 @@ export function ExpandedPanel({
   actions,
   updatedAt,
   onClose,
+  onActionClick,
+  feedbackState = null,
+  onLike,
+  onDislike,
 }: ExpandedPanelProps) {
   return (
     <div
@@ -49,6 +58,28 @@ export function ExpandedPanel({
             className="rounded-xl border border-border bg-muted/50 px-4 py-2 font-body text-sm font-bold uppercase tracking-[0.14em] text-foreground/80 transition-all duration-200 ease-out hover:border-foreground/30 hover:text-foreground"
           >
             Close
+          </button>
+        </div>
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onLike}
+            className="rounded-lg border border-border px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-foreground/70 transition-all duration-150 ease-out hover:border-tertiary/60 hover:text-tertiary"
+          >
+            <span className="inline-flex items-center gap-1">
+              <ThumbsUp size={14} className={feedbackState === 'liked' ? 'text-tertiary' : ''} />
+              Like
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={onDislike}
+            className="rounded-lg border border-border px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-foreground/70 transition-all duration-150 ease-out hover:border-secondary/60 hover:text-secondary"
+          >
+            <span className="inline-flex items-center gap-1">
+              <ThumbsDown size={14} className={feedbackState === 'disliked' ? 'text-secondary' : ''} />
+              Dislike
+            </span>
           </button>
         </div>
       </div>
@@ -87,6 +118,7 @@ export function ExpandedPanel({
             <button
               key={action}
               type="button"
+              onClick={() => onActionClick?.(action)}
               className="w-full rounded-xl px-5 py-3 text-left font-body text-sm font-bold uppercase tracking-[0.12em] text-background transition-all duration-200 ease-out hover:scale-[1.02] hover:brightness-110"
               style={{ backgroundColor: accent }}
             >

@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { ThumbsDown, ThumbsUp } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 import { animation, colors } from '../tokens'
 
@@ -9,7 +10,11 @@ type DashboardCardProps = {
   value: string
   detail: string
   previewData: string
+  isLoading?: boolean
   onClick?: () => void
+  feedbackState?: 'liked' | 'disliked' | null
+  onLike?: () => void
+  onDislike?: () => void
 }
 
 export function DashboardCard({
@@ -19,7 +24,11 @@ export function DashboardCard({
   value,
   detail,
   previewData,
+  isLoading = false,
   onClick,
+  feedbackState = null,
+  onLike,
+  onDislike,
 }: DashboardCardProps) {
   const [isHovered, setIsHovered] = useState(false)
 
@@ -27,9 +36,9 @@ export function DashboardCard({
     <motion.article
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
-      onClick={onClick}
+      onClick={isLoading ? undefined : onClick}
       onKeyDown={(event) => {
-        if ((event.key === 'Enter' || event.key === ' ') && onClick) {
+        if (!isLoading && (event.key === 'Enter' || event.key === ' ') && onClick) {
           event.preventDefault()
           onClick()
         }
@@ -42,7 +51,7 @@ export function DashboardCard({
         borderColor: isHovered ? accent : colors.border,
         boxShadow: isHovered ? `0 24px 64px ${accent}33` : '0 0 0 rgba(0,0,0,0)',
       }}
-      className="group relative min-h-[260px] cursor-pointer overflow-hidden rounded-2xl border-2 bg-card p-8 outline-none focus-visible:border-[var(--focus-accent)] focus-visible:shadow-[0_0_0_2px_rgba(248,248,248,0.12)]"
+      className={`group relative min-h-[260px] overflow-hidden rounded-2xl border-2 bg-card p-8 outline-none focus-visible:border-[var(--focus-accent)] focus-visible:shadow-[0_0_0_2px_rgba(248,248,248,0.12)] ${isLoading ? 'cursor-wait' : 'cursor-pointer'}`}
       style={{ ['--focus-accent' as string]: accent }}
     >
       <motion.span
@@ -83,7 +92,7 @@ export function DashboardCard({
             transition={{ duration: animation.fast, ease: 'easeOut' }}
             className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/70"
           >
-            Click to expand
+            {isLoading ? 'Loading...' : 'Click to expand'}
           </motion.span>
         </div>
 
@@ -91,17 +100,66 @@ export function DashboardCard({
           <p className="font-body text-xs font-bold uppercase tracking-[0.16em]" style={{ color: accent }}>
             {label}
           </p>
-          <h3 className="font-display text-5xl font-extrabold leading-[0.95] tracking-[-0.03em]">{value}</h3>
-          <p className="font-body text-base font-medium text-foreground/80">{detail}</p>
+          {isLoading ? (
+            <>
+              <div className="dayger-shimmer h-12 w-2/3 rounded-lg" />
+              <div className="dayger-shimmer h-5 w-4/5 rounded-lg" />
+            </>
+          ) : (
+            <>
+              <h3 className="font-display text-5xl font-extrabold leading-[0.95] tracking-[-0.03em]">{value}</h3>
+              <p className="font-body text-base font-medium text-foreground/80">{detail}</p>
+            </>
+          )}
         </div>
 
-        <motion.p
-          animate={{ opacity: isHovered ? 1 : 0, y: isHovered ? 0 : 10 }}
-          transition={{ duration: animation.standard, ease: 'easeOut' }}
-          className="mt-auto pt-6 font-body text-sm font-medium text-foreground/75"
-        >
-          {previewData}
-        </motion.p>
+        {isLoading ? (
+          <div className="mt-auto space-y-2 pt-6">
+            <div className="dayger-shimmer h-4 w-5/6 rounded-lg" />
+            <div className="dayger-shimmer h-4 w-3/4 rounded-lg" />
+          </div>
+        ) : (
+          <motion.p
+            animate={{ opacity: isHovered ? 1 : 0, y: isHovered ? 0 : 10 }}
+            transition={{ duration: animation.standard, ease: 'easeOut' }}
+            className="mt-auto pt-6 font-body text-sm font-medium text-foreground/75"
+          >
+            {previewData}
+          </motion.p>
+        )}
+
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            type="button"
+            disabled={isLoading}
+            onClick={(event) => {
+              event.stopPropagation()
+              onLike?.()
+            }}
+            className="rounded-lg border border-border/70 p-2 text-foreground/70 transition-all duration-150 ease-out hover:border-tertiary/60 hover:text-tertiary disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label={`Like ${label}`}
+          >
+            <ThumbsUp
+              size={14}
+              className={feedbackState === 'liked' ? 'text-tertiary' : ''}
+            />
+          </button>
+          <button
+            type="button"
+            disabled={isLoading}
+            onClick={(event) => {
+              event.stopPropagation()
+              onDislike?.()
+            }}
+            className="rounded-lg border border-border/70 p-2 text-foreground/70 transition-all duration-150 ease-out hover:border-secondary/60 hover:text-secondary disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label={`Dislike ${label}`}
+          >
+            <ThumbsDown
+              size={14}
+              className={feedbackState === 'disliked' ? 'text-secondary' : ''}
+            />
+          </button>
+        </div>
       </div>
 
       <motion.span

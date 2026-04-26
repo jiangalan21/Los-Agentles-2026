@@ -21,6 +21,7 @@ export interface UserPreferences {
 export interface DayContext {
   userId: string
   sessionId: string
+  requestId?: string
   prompt: string
   mood: string
   energyLevel: number // 1–10
@@ -28,4 +29,32 @@ export interface DayContext {
   location: Location
   preferences: UserPreferences
   weather?: WeatherContext
+  userContext?: UserContextSummary
+}
+
+export interface FeedbackSignal {
+  agentName: string
+  signal: string
+  createdAt: string
+}
+
+export interface UserContextSummary {
+  profileSummary: string
+  recentPrompts: string[]
+  recentSignals: FeedbackSignal[]
+  preferenceHints: UserPreferences
+  profileSnapshot?: {
+    name: string
+    location: string
+    morningFocus: string
+    routineNotes: string
+    dietaryProfile: string
+    musicProfile: string
+    styleProfile: string
+  }
+  promptSteeringHints?: {
+    agentScores: Record<string, number>
+    topLikedAgents: string[]
+    topDislikedAgents: string[]
+  }
 }

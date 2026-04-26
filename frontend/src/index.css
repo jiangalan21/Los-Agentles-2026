@@ -58,3 +58,20 @@ body::before {
 .dayger-scroll::-webkit-scrollbar-thumb:hover {
   filter: brightness(1.12);
 }
+
+.dayger-shimmer {
+  background: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0.06) 8%,
+    rgba(255, 255, 255, 0.14) 18%,
+    rgba(255, 255, 255, 0.06) 33%
+  );
+  background-size: 200% 100%;
+  animation: dayger-shimmer 1.4s linear infinite;
+}
+
+@keyframes dayger-shimmer {
+  to {
+    background-position-x: -200%;
+  }
+}
