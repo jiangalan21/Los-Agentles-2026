@@ -192,6 +192,7 @@ const DEFAULT_QUOTE = {
   text: 'Momentum beats motivation. Show up for one strong block at a time.',
   authorOrSource: 'Morning Coach',
 }
+const CORE_AGENT_NAMES = ['weather', 'outfit', 'music', 'energy', 'meal'] as const
 
 function getWeatherConditionIcon(condition: string) {
   const normalized = condition.toLowerCase()
@@ -502,22 +503,31 @@ export function DashboardView() {
       return acc
     }, {})
   }, [sessionQuery.data?.outputs])
+  const completedAgents = useMemo(() => {
+    const requestAgents = requestStatusQuery.data?.agents ?? []
+    if (requestAgents.length > 0) {
+      return new Set(requestAgents.filter((agent) => agent.status === 'completed').map((agent) => agent.agentName))
+    }
+    return new Set(CORE_AGENT_NAMES.filter((agentName) => Boolean(outputsByAgent[agentName])))
+  }, [outputsByAgent, requestStatusQuery.data?.agents])
+  const completedCount = completedAgents.size
 
   const enrichedCards = useMemo(
     () =>
       cardDetails.map((card) => {
         const output = outputsByAgent[card.id]
+        const shouldUseAgentOutput =
+          card.id === 'energy' || card.id === 'meal' ? completedAgents.has(card.id) : Boolean(output)
         return {
           ...card,
-          value: output?.value ?? card.value,
-          detail: output?.detail ?? card.detail,
-          previewData: output?.previewData ?? card.previewData,
+          value: shouldUseAgentOutput ? output?.value ?? card.value : card.value,
+          detail: shouldUseAgentOutput ? output?.detail ?? card.detail : card.detail,
+          previewData: shouldUseAgentOutput ? output?.previewData ?? card.previewData : card.previewData,
         }
       }),
-    [cardDetails, outputsByAgent],
+    [cardDetails, completedAgents, outputsByAgent],
   )
 
-  const completedCount = ['weather', 'outfit', 'music', 'energy', 'meal'].filter((name) => Boolean(outputsByAgent[name])).length
   const selectedCard = enrichedCards.find((card) => card.id === selectedCardId) ?? null
   const selectedCardOutput = selectedCard ? outputsByAgent[selectedCard.id] : undefined
   const topMusicTrack = selectedCard?.id === 'music' ? selectedCardOutput?.tracks?.[0] : undefined
@@ -706,15 +716,6 @@ export function DashboardView() {
         ? `Map preview of ${profile.location.trim()}`
         : undefined
   const isPanelOpen = Boolean(selectedCard)
-  const completedAgents = useMemo(
-    () =>
-      new Set(
-        (requestStatusQuery.data?.agents ?? [])
-          .filter((agent) => agent.status === 'completed')
-          .map((agent) => agent.agentName),
-      ),
-    [requestStatusQuery.data?.agents],
-  )
   const hasOutputForAgent = useCallback(
     (agentName: string) => Boolean(outputsByAgent[agentName]),
     [outputsByAgent],
@@ -879,7 +880,7 @@ export function DashboardView() {
               <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 font-body text-xs uppercase tracking-[0.12em] text-foreground/70">
                 Request {requestId.slice(0, 8)} ·{' '}
                 {requestStatusQuery.data?.request.status ?? 'initializing'} · Agents done:{' '}
-                {requestStatusQuery.data?.agents.filter((agent) => agent.status === 'completed').length ?? 0}/{trackedAgentTarget}
+                {completedCount}/{trackedAgentTarget}
               </div>
             ) : null}
             {sessionError ? (
@@ -954,7 +955,7 @@ export function DashboardView() {
                 feedbackState={feedbackStateByAgent[enrichedCards[3].id] ?? null}
                 onLike={() => submitThumbFeedback(enrichedCards[3].id, 'liked')}
                 onDislike={() => submitThumbFeedback(enrichedCards[3].id, 'disliked')}
-                isLoading={!(completedAgents.has(enrichedCards[3].id) || hasOutputForAgent(enrichedCards[3].id))}
+                isLoading={!completedAgents.has(enrichedCards[3].id)}
                 energyCurve={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.energyCurve}
                 energyWindows={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.energyWindows ?? null}
                 quoteText={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.quote?.text}
@@ -974,7 +975,7 @@ export function DashboardView() {
                   onDislike={() => submitThumbFeedback(enrichedCards[4].id, 'disliked')}
                   onRegenerate={sessionId ? () => regenerateMealMutation.mutate() : undefined}
                   isLoading={
-                    (!(completedAgents.has(enrichedCards[4].id) || hasOutputForAgent(enrichedCards[4].id))) ||
+                    !completedAgents.has(enrichedCards[4].id) ||
                     regenerateMealMutation.isPending
                   }
                   isSelected={selectedCardId === enrichedCards[4].id}
