@@ -120,12 +120,13 @@ export function MusicCard({
           >
             <Music2 size={24} strokeWidth={2.2} />
           </motion.div>
-          <p
-            className="font-body text-xs font-bold uppercase tracking-[0.16em]"
-            style={{ color: accent }}
+          <motion.span
+            animate={{ opacity: isActive ? 1 : 0, y: isActive ? 0 : -6 }}
+            transition={{ duration: animation.fast, ease: 'easeOut' }}
+            className="font-body text-xs font-bold uppercase tracking-[0.16em] text-foreground/70"
           >
-            Music
-          </p>
+            {isLoading ? 'Loading...' : 'Click to expand'}
+          </motion.span>
         </div>
 
         {/* Playlist identity */}
@@ -137,6 +138,9 @@ export function MusicCard({
           </div>
         ) : (
           <div className="space-y-1">
+            <p className="font-body text-xs font-bold uppercase tracking-[0.16em]" style={{ color: accent }}>
+              Music
+            </p>
             <h3 className="font-display text-4xl font-extrabold leading-tight tracking-[-0.03em]">
               {value}
             </h3>

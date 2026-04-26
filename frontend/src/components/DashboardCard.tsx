@@ -44,6 +44,7 @@ export function DashboardCard({
   const isActive = isHovered || isSelected
   const showFeedback = label.toLowerCase() !== 'energy' && Boolean(onLike || onDislike)
   const isOutfitCard = label.toLowerCase() === 'outfit'
+  const isWeatherCard = label.toLowerCase() === 'weather'
   const shouldShowEnergyInsights = !isLoading && label.toLowerCase() === 'energy' && Array.isArray(energyCurve) && energyCurve.length > 1
   const outfitPieces = isOutfitCard ? detail.split('·').map((piece) => piece.trim()).filter(Boolean).slice(0, 3) : []
   const chartGeometry = shouldShowEnergyInsights ? buildEnergyGeometry(energyCurve) : null
@@ -129,7 +130,7 @@ export function DashboardCard({
             </>
           ) : (
             <>
-              <h3 className={`font-display font-extrabold leading-[0.95] tracking-[-0.03em] ${isOutfitCard ? 'text-4xl' : 'text-5xl'}`}>
+              <h3 className="font-display text-5xl font-extrabold leading-[0.95] tracking-[-0.03em]">
                 {value}
               </h3>
               {isOutfitCard ? (
@@ -138,13 +139,13 @@ export function DashboardCard({
                     outfitPieces.map((piece) => (
                       <span
                         key={piece}
-                        className="rounded-full border border-border/80 bg-muted/40 px-2.5 py-1 font-body text-[10px] font-bold uppercase tracking-[0.1em] text-foreground/70"
+                        className="rounded-full border border-border/80 bg-muted/40 px-2.5 py-1 font-body text-[10px] font-bold tracking-[0.1em] text-foreground/70"
                       >
                         {piece}
                       </span>
                     ))
                   ) : (
-                    <p className="font-body text-sm font-medium text-foreground/75">{detail}</p>
+                    <p className="font-body text-base font-medium text-foreground/80">{detail}</p>
                   )}
                 </div>
               ) : (
@@ -160,7 +161,7 @@ export function DashboardCard({
             <div className="dayger-shimmer h-4 w-3/4 rounded-lg" />
           </div>
         ) : (
-          <div className={`mt-auto ${shouldShowEnergyInsights ? 'pt-3' : 'pt-6'}`}>
+          <div className={`${shouldShowEnergyInsights ? 'mt-auto pt-3' : isWeatherCard ? 'mt-4 pt-2' : 'mt-auto pt-6'}`}>
             {shouldShowEnergyInsights && chartGeometry ? (
               <div className="mb-2 space-y-3 rounded-xl border border-border/70 bg-muted/30 p-2">
                 <svg viewBox={`0 0 ${chartGeometry.width} 184`} className="h-72 w-full">
@@ -211,7 +212,7 @@ export function DashboardCard({
               <motion.p
                 animate={{ opacity: isActive ? 1 : 0, y: isActive ? 0 : 10 }}
                 transition={{ duration: animation.standard, ease: 'easeOut' }}
-                className={`font-body font-medium text-foreground/75 ${isOutfitCard ? 'text-xs uppercase tracking-[0.1em]' : 'text-sm'}`}
+                className="font-body text-sm font-medium text-foreground/75"
               >
                 {previewData}
               </motion.p>
