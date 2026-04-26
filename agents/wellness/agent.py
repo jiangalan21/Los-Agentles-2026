@@ -8,12 +8,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.chatProtocol import build_chat_protocol  # noqa: E402
 
 load_dotenv()
+WELLNESS_AGENT_PORT = int(os.getenv("WELLNESS_AGENT_PORT", "8007"))
+WELLNESS_AGENT_ENDPOINT = os.getenv("WELLNESS_AGENT_ENDPOINT", f"http://localhost:{WELLNESS_AGENT_PORT}/submit")
 
 agent = Agent(
     name="wellness-agent",
     seed=os.getenv("AGENT_SEED", "wellness-agent-seed"),
-    port=8005,
-    endpoint=["http://localhost:8005/submit"],
+    port=WELLNESS_AGENT_PORT,
+    endpoint=[WELLNESS_AGENT_ENDPOINT],
 )
 
 proto: Protocol = build_chat_protocol()

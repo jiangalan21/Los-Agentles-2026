@@ -114,6 +114,12 @@ These are vivid, saturated colors meant to glow against the dark base. Used for 
 - Alternating vertical offsets (cards 2 and 3 translate down 20px)
 - Rounded corners (2xl)
 
+### Energy Card Addendum (Current)
+- Energy card includes an inline SVG curve with a visible time axis and peak/dip markers.
+- Quote is rendered as a highlighted motivation callout for stronger hierarchy.
+- Like/dislike controls are intentionally hidden on the energy card to reduce noise.
+- Expanded energy panel prioritizes graph -> quote -> wellness checklist -> timing fields.
+
 ---
 
 ### Stat Boxes (Dashboard)

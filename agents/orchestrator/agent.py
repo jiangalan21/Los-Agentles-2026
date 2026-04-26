@@ -37,7 +37,13 @@ load_dotenv()
 DAYGER_SEED = os.getenv("DAYGER_SEED_VALUE")
 ASI_ONE_API_KEY = os.getenv("ASI_ONE_API_KEY")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:3001")
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+INTERNAL_RESULTS_URL = os.getenv("BACKEND_INTERNAL_RESULTS_URL", f"{BACKEND_URL}/internal/results")
+INTERNAL_RESULTS_KEY = os.getenv("INTERNAL_RESULTS_KEY", "")
+INTERNAL_API_KEY = INTERNAL_RESULTS_KEY
+WEATHER_AGENT_URL = os.getenv("WEATHER_AGENT_URL", "http://localhost:8001/run")
+MUSIC_AGENT_URL = os.getenv("MUSIC_AGENT_URL", "http://localhost:8003/run")
+ENERGY_AGENT_URL = os.getenv("ENERGY_AGENT_URL", "http://localhost:8005/run")
+ORCHESTRATOR_PORT = int(os.getenv("ORCHESTRATOR_PORT", "8000"))
 
 # Messages from ASI:One may include "[session:UUID]" at the start to link a backend session.
 _SESSION_PREFIX_RE = re.compile(r'^\[session:([a-f0-9\-]{36})\]\s*', re.IGNORECASE)
@@ -144,21 +150,16 @@ def _http_post(url: str, payload: dict) -> dict:
 
 
 def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    try:
-        line = json.dumps({
-            "sessionId": "244467",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        })
-        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "debug-244467.log"))
-        with open(log_path, "a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
-    except Exception:
-        pass
+    if os.getenv("ORCHESTRATOR_DEBUG", "").lower() not in {"1", "true", "yes"}:
+        return
+    print(json.dumps({
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }))
 
 
 async def _run_pipeline(req: OrchestratorRunRequest) -> None:
@@ -167,7 +168,7 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
     location = req.user_context.get("location") or parsed.location_hint or "Los Angeles"
 
     try:
-        weather_raw = await asyncio.to_thread(_http_post, "http://localhost:8001/run", {"location": location})
+        weather_raw = await asyncio.to_thread(_http_post, WEATHER_AGENT_URL, {"location": location})
     except Exception as e:
         print(f"[orchestrator] Weather agent error: {e} — using fallback")
         weather_raw = dict(_WEATHER_FALLBACK)
@@ -196,7 +197,7 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
         music_payload["temperature_f"] = weather_raw["temperature_f"]
 
     try:
-        music_data = await asyncio.to_thread(_http_post, "http://localhost:8003/run", music_payload)
+        music_data = await asyncio.to_thread(_http_post, MUSIC_AGENT_URL, music_payload)
     except Exception as e:
         print(f"[orchestrator] Music agent error: {e} — using fallback")
         music_data = dict(_MUSIC_FALLBACK)
@@ -224,7 +225,7 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
             "energyLevel": (req.day_context or {}).get("energy_level"),
         })
         # endregion
-        energy_data = await asyncio.to_thread(_http_post, "http://localhost:8005/run", energy_payload)
+        energy_data = await asyncio.to_thread(_http_post, ENERGY_AGENT_URL, energy_payload)
         # region agent log
         _debug_log(run_id, "H1", "agents/orchestrator/agent.py:_run_pipeline:energySuccess", "Energy agent returned success", {
             "sessionId": req.session_id,
@@ -271,7 +272,9 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
             "energyErrorField": energy_data.get("error") if isinstance(energy_data, dict) else None,
         })
         # endregion
-        await asyncio.to_thread(_http_post, "http://localhost:3001/internal/results", callback_payload)
+        headers = {"x-internal-key": INTERNAL_RESULTS_KEY} if INTERNAL_RESULTS_KEY else None
+        response = requests.post(INTERNAL_RESULTS_URL, json=callback_payload, headers=headers, timeout=20)
+        response.raise_for_status()
         print(f"[orchestrator] Callback posted for session {req.session_id}")
     except Exception as e:
         print(f"[orchestrator] Callback error for session {req.session_id}: {e}")
@@ -284,7 +287,7 @@ async def _run_pipeline(req: OrchestratorRunRequest) -> None:
 dayger = Agent(
     name='dayger',
     seed=DAYGER_SEED,
-    port=8000,
+    port=ORCHESTRATOR_PORT,
     mailbox=True,
     publish_agent_details=True,
 )
@@ -454,12 +457,16 @@ async def run_action_stage(ctx: Context, session_id: str):
 
 async def _push_to_backend(backend_session_id: str, cards: dict) -> None:
     """POST raw card JSON to the Express backend so the frontend can poll it."""
-    payload = {"session_id": backend_session_id, "outputs": cards}
+    payload = {
+        "sessionId": backend_session_id,
+        "requestId": None,
+        "agents": [{"agentName": key, "output": value} for key, value in cards.items()],
+    }
     headers = {"x-internal-key": INTERNAL_API_KEY, "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient() as http:
             r = await http.post(
-                f"{BACKEND_URL}/internal/agent-output",
+                INTERNAL_RESULTS_URL,
                 json=payload,
                 headers=headers,
                 timeout=10,

@@ -87,6 +87,16 @@ type AgentOutput = {
   toneTag?: string
 }
 
+export function hasAllCoreAgentOutputs(outputs: Array<{ agentName?: string }>): boolean {
+  const completedAgentNames = new Set(outputs.map((o) => o.agentName).filter(Boolean))
+  return (
+    completedAgentNames.has('weather') &&
+    completedAgentNames.has('outfit') &&
+    completedAgentNames.has('music') &&
+    completedAgentNames.has('energy')
+  )
+}
+
 function isValidSpotifyId(id: string | null | undefined): id is string {
   if (!id || !/^[A-Za-z0-9]{22}$/.test(id)) return false
   const tail = id.slice(-6)
@@ -300,18 +310,7 @@ export function DashboardView() {
     retry: 1,
     refetchInterval: (query) => {
       const outputs = (query.state.data as { outputs?: unknown[] } | undefined)?.outputs ?? []
-      // We have 4 agent cards (weather, outfit, music, energy). Energy may produce 2 rows
-      // (pre-seed from Node + LLM-generated from Python), so stop polling once we see the
-      // 4 unique agent names all present rather than a fixed row count.
-      const completedAgentNames = new Set(
-        (outputs as Array<{ agentName?: string }>).map((o) => o.agentName).filter(Boolean),
-      )
-      const allAgentsDelivered =
-        completedAgentNames.has('weather') &&
-        completedAgentNames.has('outfit') &&
-        completedAgentNames.has('music') &&
-        completedAgentNames.has('energy')
-      return allAgentsDelivered ? false : 1000
+      return hasAllCoreAgentOutputs(outputs as Array<{ agentName?: string }>) ? false : 1000
     },
   })
 

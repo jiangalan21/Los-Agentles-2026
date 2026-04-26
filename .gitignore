@@ -25,3 +25,5 @@ Thumbs.db
 agents/music/music.log
 agents/music/music_err.log
 backend/backend.log
+private_keys.json
+debug-*.log

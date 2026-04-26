@@ -244,7 +244,7 @@ export function DashboardCard({
   )
 }
 
-type EnergyGeometry = {
+export type EnergyGeometry = {
   width: number
   minMinute: number
   maxMinute: number
@@ -252,7 +252,7 @@ type EnergyGeometry = {
   path: string
 }
 
-function buildEnergyGeometry(points: Array<{ timeLabel: string; value: number }>): EnergyGeometry {
+export function buildEnergyGeometry(points: Array<{ timeLabel: string; value: number }>): EnergyGeometry {
   const width = 260
   const height = 124
   const minY = 30
@@ -284,7 +284,7 @@ function buildEnergyGeometry(points: Array<{ timeLabel: string; value: number }>
   }
 }
 
-function getTimeMarkerX(
+export function getTimeMarkerX(
   timeLabel: string | undefined,
   minMinute: number,
   maxMinute: number,
@@ -298,7 +298,7 @@ function getTimeMarkerX(
   return Math.max(0, Math.min(width, x))
 }
 
-function parseClockToMinutes(value: string): number | null {
+export function parseClockToMinutes(value: string): number | null {
   const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])?$/)
   if (!match) return null
   let hour = Number(match[1])

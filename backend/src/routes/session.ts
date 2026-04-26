@@ -7,6 +7,7 @@ import { parsePrompt } from '../services/promptParser'
 import { buildUserContext } from '../services/userContext'
 
 const router = Router()
+const MUSIC_AGENT_URL = process.env.MUSIC_AGENT_URL ?? 'http://localhost:8003/run'
 
 // POST /session — create session and trigger prompt parsing
 router.post('/', requireAnonUser, async (req, res) => {
@@ -176,7 +177,7 @@ router.post('/:id/regenerate/music', requireAnonUser, async (req, res) => {
     const timeoutId = setTimeout(() => controller.abort(), 30_000)
     let musicData: unknown
     try {
-      const agentRes = await fetch('http://localhost:8003/run', {
+      const agentRes = await fetch(MUSIC_AGENT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(musicPayload),

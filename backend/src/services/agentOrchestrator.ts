@@ -1,6 +1,8 @@
 import type { DayContext } from '../types/dayContext'
 import { prisma } from '../lib/prisma'
 
+const PYTHON_ORCHESTRATOR_URL = process.env.PYTHON_ORCHESTRATOR_URL ?? 'http://localhost:8000/run'
+
 export async function orchestrateAgents(
   sessionId: string,
   dayContext: DayContext,
@@ -250,67 +252,39 @@ async function callPythonOrchestrator(
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
-  // #region agent log
-  debugLog({
-    runId: `run-${sessionId}`,
-    hypothesisId: 'H1_H2',
-    location: 'backend/src/services/agentOrchestrator.ts:callPythonOrchestrator:beforeFetch',
-    message: 'Calling python orchestrator with day context',
-    data: {
-      sessionId,
-      requestId: requestId ?? null,
-      hasWakeTime: Boolean(dayContext.wakeTime),
-      energyLevel: dayContext.energyLevel,
-      eventsCount: dayContext.events.length,
-    },
-  })
-  // #endregion
 
   try {
-    const response = await fetch('http://localhost:8000/run', {
+    const response = await fetch(PYTHON_ORCHESTRATOR_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       signal: controller.signal,
     })
-    // #region agent log
-    debugLog({
-      runId: `run-${sessionId}`,
-      hypothesisId: 'H1',
-      location: 'backend/src/services/agentOrchestrator.ts:callPythonOrchestrator:afterFetch',
-      message: 'Python orchestrator HTTP response',
-      data: {
-        sessionId,
-        status: response.status,
-        ok: response.ok,
-      },
-    })
-    // #endregion
+    if (!response.ok) {
+      throw new Error(`Python orchestrator returned ${response.status}`)
+    }
   } catch (err) {
     console.error('[orchestrator] Python orchestrator call failed:', err)
-    // #region agent log
-    debugLog({
-      runId: `run-${sessionId}`,
-      hypothesisId: 'H1',
-      location: 'backend/src/services/agentOrchestrator.ts:callPythonOrchestrator:catch',
-      message: 'Python orchestrator call failed',
-      data: {
-        sessionId,
-        error: err instanceof Error ? err.message : 'unknown',
-      },
-    })
-    // #endregion
+    if (requestId) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      const asyncAgents = ['weather', 'music', 'energy']
+      await prisma.plan_request_agents.updateMany({
+        where: {
+          request_id: requestId,
+          agent_name: { in: asyncAgents },
+          status: { in: ['pending', 'running'] },
+        },
+        data: {
+          status: 'failed',
+          last_error: errorMessage,
+        },
+      })
+      await prisma.plan_requests.update({
+        where: { id: requestId },
+        data: { status: 'failed' },
+      })
+    }
   } finally {
     clearTimeout(timeout)
   }
-}
-
-function debugLog(payload: {
-  runId: string
-  hypothesisId: string
-  location: string
-  message: string
-  data: Record<string, unknown>
-}): void {
-  fetch('http://127.0.0.1:7274/ingest/cc5e17f3-e147-4b32-a248-58f83f5c2e99',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'244467'},body:JSON.stringify({sessionId:'244467',location:payload.location,message:payload.message,data:payload.data,timestamp:Date.now(),runId:payload.runId,hypothesisId:payload.hypothesisId})}).catch(()=>{})
 }
