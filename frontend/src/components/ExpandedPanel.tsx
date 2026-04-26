@@ -1,16 +1,19 @@
 import { motion } from 'framer-motion'
 import { ThumbsDown, ThumbsUp } from 'lucide-react'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 
 type ExpandedPanelProps = {
   accent: string
   label: string
   title: string
+  titleClassName?: string
   subtitle: string
   icon: ReactNode
   fields: Array<{ key: string; value: string }>
-  actions: string[]
+  actions: Array<string | { label: string; href?: string }>
   updatedAt: string
+  heroImageUrl?: string | null
+  heroImageAlt?: string
   onClose: () => void
   onActionClick?: (action: string) => void
   feedbackState?: 'liked' | 'disliked' | null
@@ -22,17 +25,28 @@ export function ExpandedPanel({
   accent,
   label,
   title,
+  titleClassName,
   subtitle,
   icon,
   fields,
   actions,
   updatedAt,
+  heroImageUrl,
+  heroImageAlt,
   onClose,
   onActionClick,
   feedbackState = null,
   onLike,
   onDislike,
 }: ExpandedPanelProps) {
+  const [hasHeroImageError, setHasHeroImageError] = useState(false)
+
+  useEffect(() => {
+    setHasHeroImageError(false)
+  }, [heroImageUrl])
+
+  const shouldShowHeroImage = Boolean(heroImageUrl && !hasHeroImageError)
+
   return (
     <div
       className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card/30"
@@ -46,7 +60,9 @@ export function ExpandedPanel({
             <p className="font-body text-xs font-bold uppercase tracking-[0.16em]" style={{ color: accent }}>
               {label}
             </p>
-            <h2 className="mt-2 font-display text-6xl font-extrabold leading-[0.95] tracking-[-0.04em]">
+            <h2
+              className={`mt-2 font-display font-extrabold leading-[0.95] tracking-[-0.04em] ${titleClassName ?? 'text-6xl'}`}
+            >
               {title}
             </h2>
             <p className="mt-2 font-body text-base text-foreground/75">{subtitle}</p>
@@ -89,14 +105,23 @@ export function ExpandedPanel({
         style={{ ['--scroll-accent' as string]: accent }}
       >
         <div
-          className="flex aspect-square max-h-[340px] w-full items-center justify-center rounded-2xl border-2 text-8xl"
+          className="flex aspect-square max-h-[340px] w-full items-center justify-center overflow-hidden rounded-2xl border-2 text-8xl"
           style={{
             borderColor: `${accent}AA`,
             background: `linear-gradient(145deg, ${accent}1A 0%, ${accent}0D 100%)`,
             color: accent,
           }}
         >
-          {icon}
+          {shouldShowHeroImage ? (
+            <img
+              src={heroImageUrl ?? undefined}
+              alt={heroImageAlt ?? `${label} cover art`}
+              className="h-full w-full object-cover"
+              onError={() => setHasHeroImageError(true)}
+            />
+          ) : (
+            icon
+          )}
         </div>
 
         {fields.map((field) => (
@@ -114,17 +139,38 @@ export function ExpandedPanel({
         ))}
 
         <div className="space-y-3">
-          {actions.map((action) => (
-            <button
-              key={action}
-              type="button"
-              onClick={() => onActionClick?.(action)}
-              className="w-full rounded-xl px-5 py-3 text-left font-body text-sm font-bold uppercase tracking-[0.12em] text-background transition-all duration-200 ease-out hover:scale-[1.02] hover:brightness-110"
-              style={{ backgroundColor: accent }}
-            >
-              {action}
-            </button>
-          ))}
+          {actions.map((action) => {
+            const actionLabel = typeof action === 'string' ? action : action.label
+            const actionHref = typeof action === 'string' ? undefined : action.href
+
+            if (actionHref) {
+              return (
+                <a
+                  key={actionLabel}
+                  href={actionHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => onActionClick?.(actionLabel)}
+                  className="block w-full rounded-xl px-5 py-3 text-left font-body text-sm font-bold uppercase tracking-[0.12em] text-background transition-all duration-200 ease-out hover:scale-[1.02] hover:brightness-110"
+                  style={{ backgroundColor: accent }}
+                >
+                  {actionLabel}
+                </a>
+              )
+            }
+
+            return (
+              <button
+                key={actionLabel}
+                type="button"
+                onClick={() => onActionClick?.(actionLabel)}
+                className="w-full rounded-xl px-5 py-3 text-left font-body text-sm font-bold uppercase tracking-[0.12em] text-background transition-all duration-200 ease-out hover:scale-[1.02] hover:brightness-110"
+                style={{ backgroundColor: accent }}
+              >
+                {actionLabel}
+              </button>
+            )
+          })}
         </div>
       </div>
 

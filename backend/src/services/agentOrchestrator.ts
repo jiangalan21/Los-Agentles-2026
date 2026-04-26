@@ -8,27 +8,11 @@ export async function orchestrateAgents(
 ): Promise<void> {
   const agentPayloads = [
     {
-      agentName: 'weather',
-      output: {
-        value: `${dayContext.weather?.temperature ?? 72}°F`,
-        detail: `${dayContext.weather?.condition ?? 'Clear'} & mild`,
-        previewData: dayContext.weather?.forecast ?? 'Light jacket optional.',
-      },
-    },
-    {
       agentName: 'outfit',
       output: {
         value: 'Casual',
         detail: 'Relaxed fit',
         previewData: 'Vintage tee, straight jeans, and sneakers.',
-      },
-    },
-    {
-      agentName: 'music',
-      output: {
-        value: 'Levitate',
-        detail: 'Dua Lipa',
-        previewData: `Mood-adjusted from ${dayContext.mood} profile.`,
       },
     },
     {
@@ -139,10 +123,58 @@ export async function orchestrateAgents(
       },
     })
   }
+
+  void callPythonOrchestrator(sessionId, dayContext, requestId)
 }
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
+}
+
+async function callPythonOrchestrator(
+  sessionId: string,
+  dayContext: DayContext,
+  requestId?: string
+): Promise<void> {
+  const profile = dayContext.userContext?.profileSnapshot
+  const musicGenres = dayContext.userContext?.preferenceHints?.music ?? []
+
+  const musicFeedback = dayContext.userContext?.musicFeedback
+
+  const user_context = {
+    location: profile?.location ?? dayContext.location?.city ?? 'Los Angeles',
+    morning_focus: profile?.morningFocus ?? '',
+    routine_notes: profile?.routineNotes ?? '',
+    music_genres: musicGenres,
+    music_profile: profile?.musicProfile ?? '',
+    dietary_profile: profile?.dietaryProfile ?? '',
+    style_profile: profile?.styleProfile ?? '',
+    music_liked_vibes: musicFeedback?.likedVibes ?? [],
+    music_disliked_vibes: musicFeedback?.dislikedVibes ?? [],
+  }
+
+  const payload = {
+    session_id: sessionId,
+    request_id: requestId ?? null,
+    prompt: dayContext.prompt,
+    user_context,
+  }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30_000)
+
+  try {
+    await fetch('http://localhost:8000/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    })
+  } catch (err) {
+    console.error('[orchestrator] Python orchestrator call failed:', err)
+  } finally {
+    clearTimeout(timeout)
+  }
 }

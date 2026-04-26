@@ -22,3 +22,6 @@ backend/node_modules/
 .DS_Store
 Thumbs.db
 
+agents/music/music.log
+agents/music/music_err.log
+backend/backend.log

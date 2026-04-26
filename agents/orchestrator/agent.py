@@ -1,7 +1,9 @@
+import asyncio
 from datetime import datetime
 from uuid import uuid4
 import json
 
+import requests
 from openai import OpenAI
 from uagents import Agent, Context, Protocol, Model
 from uagents_core.contrib.protocols.chat import (
@@ -26,7 +28,7 @@ from shared.models import (
     ActionAgentResponse,
 )
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.venv', '.env'))
+load_dotenv()
 DAYGER_SEED = os.getenv("DAYGER_SEED_VALUE")
 ASI_ONE_API_KEY = os.getenv("ASI_ONE_API_KEY")
 
@@ -54,6 +56,114 @@ ACTION_AGENT_ADDRESSES = {
     "wellness": os.getenv("WELLNESS_AGENT_ADDRESS", ""),
     # TODO: add more action agents here
 }
+
+
+class OrchestratorRunRequest(Model):
+    session_id: str
+    request_id: Optional[str] = None
+    prompt: str
+    user_context: dict
+
+
+class OrchestratorRunResponse(Model):
+    status: str
+    error: Optional[str] = None
+
+
+_WEATHER_FALLBACK = {
+    "condition": "Clear",
+    "description": "mild conditions",
+    "temperature_f": 68,
+    "feels_like_f": 68,
+    "humidity": 50,
+    "wind_speed": 5.0,
+    "narrative": "Weather service unavailable — assuming mild conditions.",
+}
+
+_MUSIC_FALLBACK: dict = {
+    "value": "Morning Focus",
+    "detail": "Calm · Steady · Instrumental",
+    "previewData": "A reliable mix to carry you through the morning",
+    "tracks": [
+        {"title": "Gymnopédie No.1", "artist": "Erik Satie"},
+        {"title": "Clair de Lune", "artist": "Claude Debussy"},
+        {"title": "River Flows in You", "artist": "Yiruma"},
+        {"title": "Experience", "artist": "Ludovico Einaudi"},
+        {"title": "Comptine d'un autre été", "artist": "Yann Tiersen"},
+    ],
+}
+
+
+def _http_post(url: str, payload: dict) -> dict:
+    resp = requests.post(url, json=payload, timeout=20)
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def _run_pipeline(req: OrchestratorRunRequest) -> None:
+    parsed = parse_user_input(req.prompt)
+    location = req.user_context.get("location") or parsed.location_hint or "Los Angeles"
+
+    try:
+        weather_raw = await asyncio.to_thread(_http_post, "http://localhost:8001/run", {"location": location})
+    except Exception as e:
+        print(f"[orchestrator] Weather agent error: {e} — using fallback")
+        weather_raw = dict(_WEATHER_FALLBACK)
+
+    music_payload: dict = {}
+    if parsed.mood:
+        music_payload["mood"] = parsed.mood
+    if parsed.stress_level:
+        music_payload["stress_level"] = parsed.stress_level
+    if parsed.schedule_notes:
+        music_payload["schedule_notes"] = parsed.schedule_notes
+    if parsed.music_vibe:
+        music_payload["music_vibe"] = parsed.music_vibe
+    genres = req.user_context.get("music_genres", [])
+    if genres:
+        music_payload["music_genres"] = genres
+    liked_vibes = req.user_context.get("music_liked_vibes", [])
+    if liked_vibes:
+        music_payload["liked_vibes"] = liked_vibes
+    disliked_vibes = req.user_context.get("music_disliked_vibes", [])
+    if disliked_vibes:
+        music_payload["disliked_vibes"] = disliked_vibes
+    if weather_raw.get("condition"):
+        music_payload["weather_condition"] = weather_raw["condition"]
+    if weather_raw.get("temperature_f") is not None:
+        music_payload["temperature_f"] = weather_raw["temperature_f"]
+
+    try:
+        music_data = await asyncio.to_thread(_http_post, "http://localhost:8003/run", music_payload)
+    except Exception as e:
+        print(f"[orchestrator] Music agent error: {e} — using fallback")
+        music_data = dict(_MUSIC_FALLBACK)
+
+    weather_card = {
+        "value": f"{weather_raw.get('temperature_f', 68)}°F",
+        "detail": f"{weather_raw.get('condition', 'Clear')} · {weather_raw.get('description', 'mild conditions')}",
+        "previewData": (
+            f"Feels like {weather_raw.get('feels_like_f', 68)}°. "
+            f"Humidity {weather_raw.get('humidity', 50)}%. "
+            f"Wind {round(weather_raw.get('wind_speed', 5))} mph.\n"
+            f"{weather_raw.get('narrative', '')}"
+        ),
+    }
+
+    callback_payload = {
+        "sessionId": req.session_id,
+        "requestId": req.request_id,
+        "agents": [
+            {"agentName": "weather", "output": weather_card},
+            {"agentName": "music", "output": music_data},
+        ],
+    }
+
+    try:
+        await asyncio.to_thread(_http_post, "http://localhost:3001/internal/results", callback_payload)
+        print(f"[orchestrator] Callback posted for session {req.session_id}")
+    except Exception as e:
+        print(f"[orchestrator] Callback error for session {req.session_id}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +435,11 @@ async def handle_action_response(ctx: Context, _sender: str, msg: ActionAgentRes
 dayger.include(protocol, publish_manifest=True)
 dayger.include(orchestrator_proto, publish_manifest=True)
 
+
+@dayger.on_rest_post("/run", OrchestratorRunRequest, OrchestratorRunResponse)
+async def handle_rest_run(ctx: Context, req: OrchestratorRunRequest) -> OrchestratorRunResponse:
+    asyncio.create_task(_run_pipeline(req))
+    return OrchestratorRunResponse(status="started")
 
 
 if __name__ == '__main__':

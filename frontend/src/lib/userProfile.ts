@@ -50,14 +50,12 @@ export function splitPreferenceList(value: string): string[] {
 }
 
 export function buildPromptFromProfile(profile: UserProfile): string {
-  return [
-    "I'm stressed, have a midterm at 2pm, and it's cold outside.",
-    `Name: ${profile.name}.`,
-    `Location: ${profile.location}.`,
-    `Morning focus: ${profile.morningFocus}.`,
-    `Routine notes: ${profile.routineNotes}.`,
-    `Dietary preferences: ${profile.dietaryPreferences}.`,
-    `Music preferences: ${profile.musicPreferences}.`,
-    `Style preferences: ${profile.stylePreferences}.`,
-  ].join(' ')
+  const parts: string[] = []
+  if (profile.morningFocus) parts.push(profile.morningFocus)
+  if (profile.routineNotes) parts.push(profile.routineNotes)
+  if (profile.location) parts.push(`Location: ${profile.location}`)
+  if (profile.musicPreferences) parts.push(`Music preferences: ${profile.musicPreferences}`)
+  if (profile.dietaryPreferences) parts.push(`Dietary preferences: ${profile.dietaryPreferences}`)
+  if (profile.stylePreferences) parts.push(`Style preferences: ${profile.stylePreferences}`)
+  return parts.length > 0 ? parts.join('. ') : 'Standard morning routine.'
 }
