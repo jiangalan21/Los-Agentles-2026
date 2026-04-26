@@ -1,0 +1,12 @@
+WARNING:  [music-agent]: Endpoint configuration overrides mailbox setting.
+INFO:     [music-agent]: Starting agent with address: agent1qglpezg6xnjs23ls7fpcs382mxqveypgzslykyv0gh8tpkvf6h0570dcsf2
+INFO:     [music-agent]: Agent inspector available at https://agentverse.ai/inspect/?uri=http%3A//127.0.0.1%3A8003&address=agent1qglpezg6xnjs23ls7fpcs382mxqveypgzslykyv0gh8tpkvf6h0570dcsf2
+INFO:     [music-agent]: Starting server on http://0.0.0.0:8003 (Press CTRL+C to quit)
+INFO:     [music-agent]: Manifest published successfully: AgentChatProtocol
+INFO:     [music-agent]: Agent registration status updated to active
+INFO:     [music-agent]: Music agent started: agent1qglpezg6xnjs23ls7fpcs382mxqveypgzslykyv0gh8tpkvf6h0570dcsf2
+INFO:     [music-agent]: Manifest published successfully: orchestrator-music
+INFO:     [uagents.registration]: Registration on Almanac API successful
+WARNING:  [uagents.registration]: I do not have enough funds to register on Almanac contract
+WARNING:  [uagents.registration]: To enable contract registration, send funds to wallet address: fetch14a7yndwc3tdaqfjx2tqslyu7medd0mq0k0cdl4
+WARNING:  [uagents.registration]: To register on testnet Almanac contract, create agent with 'Agent(..., network="testnet")'

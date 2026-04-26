@@ -22,6 +22,8 @@ class UserProfile(Model):
     clothing_style: Optional[str] = None
     music_genres: Optional[list] = None
     home_location: Optional[str] = None
+    liked_vibes: Optional[list] = None    # vibes/details from previously liked music cards
+    disliked_vibes: Optional[list] = None  # vibes/details from previously disliked music cards
 
 
 class ContextAgentRequest(Model):

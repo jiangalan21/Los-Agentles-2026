@@ -10,7 +10,7 @@ const DEFAULT_PREFERENCES = {
 }
 
 export async function buildUserContext(userId: string): Promise<UserContextSummary> {
-  const [user, prefs, recentSessions, recentFeedback] = await Promise.all([
+  const [user, prefs, recentSessions, recentFeedback, musicFeedbackEvents] = await Promise.all([
     prisma.users.findUnique({ where: { id: userId } }),
     prisma.user_preferences.findUnique({ where: { user_id: userId } }),
     prisma.sessions.findMany({
@@ -25,7 +25,46 @@ export async function buildUserContext(userId: string): Promise<UserContextSumma
       take: 20,
       select: { agent_name: true, signal: true, created_at: true },
     }),
+    prisma.feedback_events.findMany({
+      where: { user_id: userId, agent_name: 'music', signal: { in: ['liked', 'disliked'] } },
+      orderBy: { created_at: 'desc' },
+      take: 6,
+      select: { signal: true, session_id: true },
+    }),
   ])
+
+  const musicFeedbackSessionIds = musicFeedbackEvents
+    .map((e) => e.session_id)
+    .filter((id): id is string => Boolean(id))
+
+  const musicOutputsForFeedback =
+    musicFeedbackSessionIds.length > 0
+      ? await prisma.agent_outputs.findMany({
+          where: { session_id: { in: musicFeedbackSessionIds }, agent_name: 'music' },
+          orderBy: { created_at: 'desc' },
+          select: { session_id: true, output: true },
+        })
+      : []
+
+  const musicOutputBySession = musicOutputsForFeedback.reduce<Record<string, { detail?: string }>>(
+    (acc, o) => {
+      if (!acc[o.session_id]) {
+        acc[o.session_id] = o.output as { detail?: string }
+      }
+      return acc
+    },
+    {},
+  )
+
+  const likedVibes: string[] = []
+  const dislikedVibes: string[] = []
+  for (const event of musicFeedbackEvents) {
+    if (!event.session_id) continue
+    const detail = musicOutputBySession[event.session_id]?.detail
+    if (!detail) continue
+    if (event.signal === 'liked') likedVibes.push(detail)
+    else dislikedVibes.push(detail)
+  }
 
   const preferenceHints = prefs
     ? {
@@ -72,6 +111,7 @@ export async function buildUserContext(userId: string): Promise<UserContextSumma
       topLikedAgents,
       topDislikedAgents,
     },
+    musicFeedback: { likedVibes, dislikedVibes },
   }
 }
 

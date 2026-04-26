@@ -31,6 +31,7 @@ export function DashboardCard({
   onDislike,
 }: DashboardCardProps) {
   const [isHovered, setIsHovered] = useState(false)
+  const showFeedback = Boolean(onLike || onDislike)
 
   return (
     <motion.article
@@ -128,38 +129,44 @@ export function DashboardCard({
           </motion.p>
         )}
 
-        <div className="mt-4 flex items-center gap-2">
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={(event) => {
-              event.stopPropagation()
-              onLike?.()
-            }}
-            className="rounded-lg border border-border/70 p-2 text-foreground/70 transition-all duration-150 ease-out hover:border-tertiary/60 hover:text-tertiary disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label={`Like ${label}`}
-          >
-            <ThumbsUp
-              size={14}
-              className={feedbackState === 'liked' ? 'text-tertiary' : ''}
-            />
-          </button>
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={(event) => {
-              event.stopPropagation()
-              onDislike?.()
-            }}
-            className="rounded-lg border border-border/70 p-2 text-foreground/70 transition-all duration-150 ease-out hover:border-secondary/60 hover:text-secondary disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label={`Dislike ${label}`}
-          >
-            <ThumbsDown
-              size={14}
-              className={feedbackState === 'disliked' ? 'text-secondary' : ''}
-            />
-          </button>
-        </div>
+        {showFeedback ? (
+          <div className="mt-4 flex items-center gap-2">
+            {onLike ? (
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onLike()
+                }}
+                className="rounded-lg border border-border/70 p-2 text-foreground/70 transition-all duration-150 ease-out hover:border-tertiary/60 hover:text-tertiary disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label={`Like ${label}`}
+              >
+                <ThumbsUp
+                  size={14}
+                  className={feedbackState === 'liked' ? 'text-tertiary' : ''}
+                />
+              </button>
+            ) : null}
+            {onDislike ? (
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onDislike()
+                }}
+                className="rounded-lg border border-border/70 p-2 text-foreground/70 transition-all duration-150 ease-out hover:border-secondary/60 hover:text-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label={`Dislike ${label}`}
+              >
+                <ThumbsDown
+                  size={14}
+                  className={feedbackState === 'disliked' ? 'text-secondary' : ''}
+                />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <motion.span
