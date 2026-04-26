@@ -1,9 +1,19 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
+import { deriveRequestStatusFromRemaining, isAuthorizedInternalCallback } from './internalHelpers'
 
 const router = Router()
+const INTERNAL_RESULTS_KEY = process.env.INTERNAL_RESULTS_KEY ?? ''
 
 router.post('/results', async (req, res) => {
+  if (!INTERNAL_RESULTS_KEY) {
+    return res.status(500).json({ error: 'internal results key is not configured' })
+  }
+  const authHeader = req.header('x-internal-key') ?? ''
+  if (!isAuthorizedInternalCallback(INTERNAL_RESULTS_KEY, authHeader)) {
+    return res.status(401).json({ error: 'unauthorized internal callback' })
+  }
+
   const { sessionId, requestId, agents } = req.body as {
     sessionId?: string
     requestId?: string | null
@@ -15,18 +25,22 @@ router.post('/results', async (req, res) => {
   }
 
   try {
+    const session = requestId
+      ? await prisma.sessions.findUnique({
+          where: { id: sessionId },
+          select: { user_id: true },
+        })
+      : null
+    if (requestId && !session) {
+      return res.status(404).json({ error: 'session not found for request callback' })
+    }
+
     for (const { agentName, output } of agents) {
       if (requestId) {
         const existing = await prisma.plan_request_agents.findFirst({
           where: { request_id: requestId, agent_name: agentName },
         })
-        // #region agent log
-        fetch('http://127.0.0.1:7274/ingest/cc5e17f3-e147-4b32-a248-58f83f5c2e99',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'244467'},body:JSON.stringify({sessionId:'244467',location:'backend/src/routes/internal.ts:loop:existingStatus',message:'internal/results existing request-agent status',data:{runId:`run-${sessionId}`,hypothesisId:'H4',sessionId,requestId,agentName,existingStatus:existing?.status??null},timestamp:Date.now(),runId:`run-${sessionId}`,hypothesisId:'H4'})}).catch(()=>{})
-        // #endregion
         if (existing?.status === 'completed') {
-          // #region agent log
-          fetch('http://127.0.0.1:7274/ingest/cc5e17f3-e147-4b32-a248-58f83f5c2e99',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'244467'},body:JSON.stringify({sessionId:'244467',location:'backend/src/routes/internal.ts:loop:skipCompleted',message:'internal/results skipped already completed agent',data:{runId:`run-${sessionId}`,hypothesisId:'H4',sessionId,requestId,agentName},timestamp:Date.now(),runId:`run-${sessionId}`,hypothesisId:'H4'})}).catch(()=>{})
-          // #endregion
           continue
         }
       }
@@ -41,11 +55,19 @@ router.post('/results', async (req, res) => {
       })
 
       if (requestId) {
-        await prisma.plan_request_agents.update({
+        await prisma.plan_request_agents.upsert({
           where: {
             request_id_agent_name: { request_id: requestId, agent_name: agentName },
           },
-          data: {
+          create: {
+            request_id: requestId,
+            user_id: session!.user_id,
+            agent_name: agentName,
+            status: 'completed',
+            completed_at: new Date(),
+            attempt_count: 1,
+          },
+          update: {
             status: 'completed',
             completed_at: new Date(),
             last_error: null,
@@ -62,7 +84,7 @@ router.post('/results', async (req, res) => {
       await prisma.plan_requests.update({
         where: { id: requestId },
         data: {
-          status: pendingOrFailed === 0 ? 'completed' : 'running',
+          status: deriveRequestStatusFromRemaining(pendingOrFailed),
           completed_at: pendingOrFailed === 0 ? new Date() : null,
         },
       })

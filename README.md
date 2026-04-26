@@ -46,8 +46,6 @@ Apply schema changes with your preferred migration flow for your environment.
 
 ## Agents
 
-All agents share a single `requirements.txt`. Each agent has its own venv.
-
 ### First-time setup (run once per agent)
 
 ```bash
@@ -55,7 +53,7 @@ cd agents/<agent-name>
 python -m venv venv
 source venv/Scripts/activate   # Windows (Git Bash / PowerShell uses: .\venv\Scripts\Activate.ps1)
 # source venv/bin/activate     # macOS / Linux
-pip install -r ../requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Run an agent
@@ -70,12 +68,14 @@ python agent.py
 
 | Agent      | Port |
 |------------|------|
+| orchestrator | 8000 |
 | weather    | 8001 |
 | outfit     | 8002 |
 | music      | 8003 |
+| energy     | 8005 |
 | restaurant | 8004 |
-| wellness   | 8005 |
 | schedule   | 8006 |
+| wellness   | 8007 (legacy, not active in 4-card flow) |
 
 ---
 
@@ -90,12 +90,14 @@ python agent.py
     /types       dayContext.ts
   /prisma        schema.prisma
 /agents
+  /orchestrator
   /weather
   /outfit
   /music
-  /restaurant
-  /wellness
-  /schedule
+  /energy
+  /restaurant   (not active in current dashboard pipeline)
+  /wellness     (legacy / not active in current dashboard pipeline)
+  /schedule     (legacy / not active in current dashboard pipeline)
   /shared        context.py, chatProtocol.py
 ```
 
@@ -106,8 +108,14 @@ python agent.py
 | File | Key | Description |
 |------|-----|-------------|
 | `backend/.env` | `DATABASE_URL` | Supabase PostgreSQL connection string |
-| `backend/.env` | `ANTHROPIC_API_KEY` | Anthropic API key |
+| `backend/.env` | `PYTHON_ORCHESTRATOR_URL` | Python orchestrator run endpoint (default `http://localhost:8000/run`) |
+| `backend/.env` | `MUSIC_AGENT_URL` | Music agent endpoint for regeneration (default `http://localhost:8003/run`) |
+| `backend/.env` | `INTERNAL_RESULTS_KEY` | Shared secret required by `POST /internal/results` (`x-internal-key`) |
 | `backend/.env` | `OPENWEATHER_API_KEY` | OpenWeatherMap API key for weather service |
 | `backend/.env` | `YELP_API_KEY` | Yelp Fusion API key for restaurant service |
-| `agents/weather/.env` | `OPEN_WEATHER_API` | OpenWeatherMap API key |
-| `agents/weather/.env` | `AGENTVERSE_API` | Fetch.ai Agentverse API key |
+| `agents/orchestrator/.env` | `BACKEND_INTERNAL_RESULTS_URL` | Backend callback endpoint (default `http://localhost:3001/internal/results`) |
+| `agents/orchestrator/.env` | `INTERNAL_RESULTS_KEY` | Shared secret sent as `x-internal-key` callback header |
+| `agents/orchestrator/.env` | `WEATHER_AGENT_URL` | Weather agent run endpoint |
+| `agents/orchestrator/.env` | `MUSIC_AGENT_URL` | Music agent run endpoint |
+| `agents/orchestrator/.env` | `ENERGY_AGENT_URL` | Energy agent run endpoint |
+| `agents/energy/.env` | `ENERGY_AGENT_PORT` | Energy agent port (default `8005`) |

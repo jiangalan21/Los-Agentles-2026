@@ -12,12 +12,15 @@ from uagents import Agent, Context, Model
 load_dotenv()
 
 ASI1_API_KEY = os.getenv("ASI1_API_KEY")
+ENERGY_AGENT_PORT = int(os.getenv("ENERGY_AGENT_PORT", "8005"))
+ENERGY_AGENT_ENDPOINT = os.getenv("ENERGY_AGENT_ENDPOINT") or f"http://localhost:{ENERGY_AGENT_PORT}/submit"
+ENERGY_AGENT_DEBUG = os.getenv("ENERGY_AGENT_DEBUG", "").lower() in {"1", "true", "yes"}
 
 agent = Agent(
     name="energy-agent",
     seed=os.getenv("AGENT_SEED", "energy-agent-seed"),
-    port=8005,
-    endpoint=[os.getenv("AGENT_ENDPOINT") or "http://localhost:8005/submit"],
+    port=ENERGY_AGENT_PORT,
+    endpoint=[ENERGY_AGENT_ENDPOINT],
     mailbox=True,
 )
 
@@ -87,21 +90,16 @@ FALLBACK_RESPONSE = {
 
 
 def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    try:
-        line = json.dumps({
-            "sessionId": "244467",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        })
-        log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "debug-244467.log"))
-        with open(log_path, "a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
-    except Exception:
-        pass
+    if not ENERGY_AGENT_DEBUG:
+        return
+    print(json.dumps({
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }))
 
 
 def _parse_wake_time(raw_wake_time: Optional[str], prompt: str) -> Optional[datetime]:
