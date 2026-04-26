@@ -1,13 +1,17 @@
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime, timedelta
 from typing import Optional
 
 from dotenv import load_dotenv
 from openai import OpenAI
-from uagents import Agent, Context, Model
+from uagents import Agent, Context, Model, Protocol
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from shared.models import ActionAgentRequest, ActionAgentResponse
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -15,6 +19,7 @@ ASI1_API_KEY = os.getenv("ASI1_API_KEY")
 ENERGY_AGENT_PORT = int(os.getenv("ENERGY_AGENT_PORT", "8005"))
 ENERGY_AGENT_ENDPOINT = os.getenv("ENERGY_AGENT_ENDPOINT") or f"http://localhost:{ENERGY_AGENT_PORT}/submit"
 ENERGY_AGENT_DEBUG = os.getenv("ENERGY_AGENT_DEBUG", "").lower() in {"1", "true", "yes"}
+ORCHESTRATOR_AGENT_ADDRESS = os.getenv("ORCHESTRATOR_AGENT_ADDRESS", "").strip()
 
 agent = Agent(
     name="energy-agent",
@@ -23,6 +28,7 @@ agent = Agent(
     endpoint=[ENERGY_AGENT_ENDPOINT],
     mailbox=True,
 )
+orchestrator_proto = Protocol(name="orchestrator-pipeline", version="0.1.0")
 
 client = OpenAI(
     base_url="https://api.asi1.ai/v1",
@@ -274,10 +280,60 @@ async def handle_run(_ctx: Context, req: EnergyRunRequest) -> EnergyRunResponse:
     return EnergyRunResponse(**result)
 
 
+def _build_energy_request(msg: ActionAgentRequest) -> EnergyRunRequest:
+    parsed = msg.enriched_context.parsed_input
+    profile = msg.enriched_context.user_profile
+    events = [parsed.schedule_notes] if parsed.schedule_notes else None
+    location = (msg.enriched_context.weather or {}).get("location") or profile.home_location
+    return EnergyRunRequest(
+        prompt=parsed.raw_prompt,
+        mood=parsed.mood,
+        stress_level=parsed.stress_level,
+        energy_level=None,
+        wake_time=None,
+        schedule_notes=parsed.schedule_notes,
+        events=events,
+        location=location,
+        morning_focus=None,
+    )
+
+
+@orchestrator_proto.on_message(ActionAgentRequest)
+async def handle_action_request(ctx: Context, sender: str, msg: ActionAgentRequest) -> None:
+    ctx.logger.info(f"[energy] ActionAgentRequest received for session {msg.session_id}")
+    reply_target = ORCHESTRATOR_AGENT_ADDRESS or sender
+    if ORCHESTRATOR_AGENT_ADDRESS:
+        ctx.logger.info(f"[energy] replying to configured ORCHESTRATOR_AGENT_ADDRESS: {reply_target}")
+    else:
+        ctx.logger.info(f"[energy] replying to sender: {reply_target}")
+
+    error: Optional[str] = None
+    try:
+        run_req = _build_energy_request(msg)
+        result = await handle_run(ctx, run_req)
+        card_data = result.model_dump(exclude_none=True)
+    except Exception as exc:
+        ctx.logger.exception(f"[energy] failed to generate card: {exc}")
+        error = str(exc)
+        card_data = dict(FALLBACK_RESPONSE)
+
+    await ctx.send(
+        reply_target,
+        ActionAgentResponse(
+            session_id=msg.session_id,
+            agent_name="energy",
+            card_data=card_data,
+            error=error,
+        ),
+    )
+    ctx.logger.info(f"[energy] ActionAgentResponse sent for session {msg.session_id}")
+
+
 @agent.on_event("startup")
 async def on_startup(ctx: Context) -> None:
     ctx.logger.info(f"Energy agent started: {agent.address}")
 
 
 if __name__ == "__main__":
+    agent.include(orchestrator_proto, publish_manifest=True)
     agent.run()

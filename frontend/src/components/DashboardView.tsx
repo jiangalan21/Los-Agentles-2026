@@ -574,7 +574,7 @@ export function DashboardView() {
 
       return {
         ...selectedCard,
-        subtitle: previewText || 'Live weather summary from your current session.',
+        subtitle: '',
         fields: dynamicFields,
         actions: ['View Hourly Forecast'],
       }
@@ -1036,8 +1036,8 @@ export function DashboardView() {
                       setSelectedCardId(null)
                     }}
                     feedbackState={feedbackStateByAgent[selectedCard.id] ?? null}
-                    onLike={() => submitThumbFeedback(selectedCard.id, 'liked')}
-                    onDislike={() => submitThumbFeedback(selectedCard.id, 'disliked')}
+                    onLike={selectedCard.id === 'weather' ? undefined : () => submitThumbFeedback(selectedCard.id, 'liked')}
+                    onDislike={selectedCard.id === 'weather' ? undefined : () => submitThumbFeedback(selectedCard.id, 'disliked')}
                     energyInsights={
                       selectedCard.id === 'energy'
                         ? buildEnergyInsights(selectedCardOutput as EnergyAgentOutput | undefined)

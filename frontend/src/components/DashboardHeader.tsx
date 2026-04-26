@@ -6,7 +6,7 @@ type DashboardHeaderProps = {
   userLocation?: string
 }
 
-const navItems = ['Weather', 'Outfit', 'Music', 'Energy']
+const navItems = ['Weather', 'Outfit', 'Music', 'Energy', 'Meals']
 
 export function DashboardHeader({ userName = 'Alex', userLocation = 'Los Angeles' }: DashboardHeaderProps) {
   const now = new Date()

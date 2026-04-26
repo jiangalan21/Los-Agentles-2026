@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ArrowRight, CloudSun, Shirt, Zap } from 'lucide-react'
+import { ArrowRight, CloudSun, Music2, Shirt, Utensils, Zap } from 'lucide-react'
 import { colors } from '../tokens'
 import { Logo } from './Logo'
 
@@ -7,8 +7,45 @@ type LandingPageProps = {
   onStartDashboard: () => void
 }
 
-const tickerItems = ['Weather', 'Outfit', 'Music', 'Energy']
-const tickerColors = [colors.primary, colors.secondary, colors.tertiary, colors.purple]
+const tickerItems = ['Weather', 'Outfit', 'Music', 'Energy', 'Meals']
+const tickerColors = [colors.primary, colors.secondary, colors.tertiary, colors.purple, colors.blue]
+const previewCards = [
+  {
+    accent: colors.primary,
+    label: 'Weather',
+    value: '72°',
+    detail: 'Sunny all day',
+    icon: <CloudSun className="h-6 w-6" />,
+  },
+  {
+    accent: colors.secondary,
+    label: 'Outfit',
+    value: 'Fit',
+    detail: 'Casual layers',
+    icon: <Shirt className="h-6 w-6" />,
+  },
+  {
+    accent: colors.tertiary,
+    label: 'Music',
+    value: 'Focus',
+    detail: 'Calm morning mix',
+    icon: <Music2 className="h-6 w-6" />,
+  },
+  {
+    accent: colors.purple,
+    label: 'Energy',
+    value: '85%',
+    detail: 'Peak at 10AM',
+    icon: <Zap className="h-6 w-6" />,
+  },
+  {
+    accent: colors.blue,
+    label: 'Meals',
+    value: 'De Neve',
+    detail: 'Breakfast picks',
+    icon: <Utensils className="h-6 w-6" />,
+  },
+]
 
 export function LandingPage({ onStartDashboard }: LandingPageProps) {
   return (
@@ -74,29 +111,27 @@ export function LandingPage({ onStartDashboard }: LandingPageProps) {
             </div>
           </div>
 
-          <div className="col-span-5 flex items-center justify-end">
-            <div className="w-full max-w-[520px] space-y-4">
-              <PreviewCard
-                accent={colors.primary}
-                label="Weather"
-                value="72°"
-                detail="Sunny all day, light jacket optional"
-                icon={<CloudSun className="h-6 w-6" />}
-              />
-              <PreviewCard
-                accent={colors.secondary}
-                label="Outfit"
-                value="Fit"
-                detail="Casual layers - Your vintage tee works"
-                icon={<Shirt className="h-6 w-6" />}
-              />
-              <PreviewCard
-                accent={colors.purple}
-                label="Energy"
-                value="85%"
-                detail="Peak focus at 10AM - 7.5hrs sleep"
-                icon={<Zap className="h-6 w-6" />}
-              />
+          <div className="col-span-5 flex items-center justify-center pr-8">
+            <div className="w-full max-w-[500px] translate-y-8 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                {previewCards.slice(0, 2).map((card) => (
+                  <PreviewCard key={card.label} accent={card.accent} label={card.label} value={card.value} detail={card.detail} icon={card.icon} />
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {previewCards.slice(2, 4).map((card) => (
+                  <PreviewCard key={card.label} accent={card.accent} label={card.label} value={card.value} detail={card.detail} icon={card.icon} />
+                ))}
+              </div>
+              <div className="mx-auto w-full max-w-[240px]">
+                <PreviewCard
+                  accent={previewCards[4].accent}
+                  label={previewCards[4].label}
+                  value={previewCards[4].value}
+                  detail={previewCards[4].detail}
+                  icon={previewCards[4].icon}
+                />
+              </div>
             </div>
           </div>
         </section>
@@ -168,8 +203,8 @@ function PreviewCard({ accent, label, value, detail, icon }: PreviewCardProps) {
           {label}
         </p>
       </div>
-      <h3 className="mt-3 font-display text-4xl font-extrabold leading-none tracking-[-0.04em]">{value}</h3>
-      <p className="mt-2 font-body text-sm font-medium text-foreground/75">{detail}</p>
+      <h3 className="mt-2 font-display text-4xl font-extrabold leading-none tracking-[-0.04em]">{value}</h3>
+      <p className="mt-1.5 font-body text-sm font-medium text-foreground/75">{detail}</p>
     </motion.article>
   )
 }

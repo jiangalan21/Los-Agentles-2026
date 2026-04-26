@@ -78,6 +78,7 @@ export function ExpandedPanel({
   const isOutfitLayout = layoutVariant === 'outfit'
   const isMealLayout = layoutVariant === 'meal'
   const isCustomLayout = layoutVariant === 'custom'
+  const showFeedbackButtons = Boolean(onLike && onDislike)
   const showEnergyInsights = Boolean(
     energyInsights && (energyInsights.energyCurve?.length || energyInsights.wellnessTips?.length || energyInsights.quote?.text),
   )
@@ -114,28 +115,30 @@ export function ExpandedPanel({
             Close
           </button>
         </div>
-        <div className="mt-4 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onLike}
-            className="rounded-lg border border-border px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-foreground/70 transition-all duration-150 ease-out hover:border-tertiary/60 hover:text-tertiary"
-          >
-            <span className="inline-flex items-center gap-1">
-              <ThumbsUp size={14} className={feedbackState === 'liked' ? 'text-tertiary' : ''} />
-              Like
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={onDislike}
-            className="rounded-lg border border-border px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-foreground/70 transition-all duration-150 ease-out hover:border-secondary/60 hover:text-secondary"
-          >
-            <span className="inline-flex items-center gap-1">
-              <ThumbsDown size={14} className={feedbackState === 'disliked' ? 'text-secondary' : ''} />
-              Dislike
-            </span>
-          </button>
-        </div>
+        {showFeedbackButtons ? (
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onLike}
+              className="rounded-lg border border-border px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-foreground/70 transition-all duration-150 ease-out hover:border-tertiary/60 hover:text-tertiary"
+            >
+              <span className="inline-flex items-center gap-1">
+                <ThumbsUp size={14} className={feedbackState === 'liked' ? 'text-tertiary' : ''} />
+                Like
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onDislike}
+              className="rounded-lg border border-border px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-foreground/70 transition-all duration-150 ease-out hover:border-secondary/60 hover:text-secondary"
+            >
+              <span className="inline-flex items-center gap-1">
+                <ThumbsDown size={14} className={feedbackState === 'disliked' ? 'text-secondary' : ''} />
+                Dislike
+              </span>
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div
