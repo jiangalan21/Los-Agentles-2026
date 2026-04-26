@@ -18,6 +18,7 @@ import { JSX, useEffect, useMemo, useState } from 'react'
 import {
   createRequest,
   createSession,
+  type EnergyAgentOutput,
   getHourlyForecast,
   getProfile,
   getRecentSessions,
@@ -72,6 +73,18 @@ type AgentOutput = {
   detail?: string
   previewData?: string
   tracks?: Array<{ title: string; artist: string; spotify_id?: string | null }>
+  headlineValue?: string
+  coachSummary?: string
+  wellnessTips?: string[]
+  energyWindows?: {
+    peakStart?: string
+    peakEnd?: string
+    dipStart?: string
+    dipEnd?: string
+  }
+  energyCurve?: Array<{ timeLabel: string; value: number }>
+  quote?: { text?: string; authorOrSource?: string }
+  toneTag?: string
 }
 
 function isValidSpotifyId(id: string | null | undefined): id is string {
@@ -87,6 +100,73 @@ function formatCurrentTime(date: Date) {
     minute: '2-digit',
     hour12: true,
   }).format(date)
+}
+
+function clockFmt(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date)
+}
+
+function addMins(base: Date, minutes: number): Date {
+  return new Date(base.getTime() + minutes * 60_000)
+}
+
+function buildClientEnergyWindows(): { peakStart: string; peakEnd: string; dipStart: string; dipEnd: string } {
+  const now = new Date()
+  const wakeBase = new Date(now)
+  wakeBase.setHours(Math.max(5, now.getHours() - 2), 0, 0, 0)
+  return {
+    peakStart: clockFmt(addMins(wakeBase, 210)),
+    peakEnd: clockFmt(addMins(wakeBase, 330)),
+    dipStart: clockFmt(addMins(wakeBase, 480)),
+    dipEnd: clockFmt(addMins(wakeBase, 570)),
+  }
+}
+
+function buildEnergyInsights(
+  output: EnergyAgentOutput | undefined,
+): { energyCurve: Array<{ timeLabel: string; value: number }>; wellnessTips: string[]; quote: { text: string; authorOrSource: string } } {
+  if (output?.energyCurve && output.energyCurve.length > 1) {
+    return {
+      energyCurve: output.energyCurve,
+      wellnessTips: output.wellnessTips ?? DEFAULT_WELLNESS_TIPS,
+      quote: output.quote?.text
+        ? { text: output.quote.text, authorOrSource: output.quote.authorOrSource ?? 'Morning Coach' }
+        : DEFAULT_QUOTE,
+    }
+  }
+
+  const now = new Date()
+  const wakeBase = new Date(now)
+  wakeBase.setHours(Math.max(5, now.getHours() - 2), 0, 0, 0)
+  const peakStart = addMins(wakeBase, 210)
+  const peakEnd = addMins(wakeBase, 330)
+  const dipStart = addMins(wakeBase, 480)
+  const dipEnd = addMins(wakeBase, 570)
+  const base = 70
+
+  return {
+    energyCurve: [
+      { timeLabel: clockFmt(wakeBase), value: base - 18 },
+      { timeLabel: clockFmt(addMins(wakeBase, 120)), value: base - 5 },
+      { timeLabel: clockFmt(peakStart), value: base + 14 },
+      { timeLabel: clockFmt(peakEnd), value: base + 8 },
+      { timeLabel: clockFmt(dipStart), value: base - 8 },
+      { timeLabel: clockFmt(dipEnd), value: base - 18 },
+    ],
+    wellnessTips: DEFAULT_WELLNESS_TIPS,
+    quote: DEFAULT_QUOTE,
+  }
+}
+
+const DEFAULT_WELLNESS_TIPS = [
+  'Hydrate before your first task — your brain runs on water.',
+  'Lock in a 50-minute focus sprint during your peak window.',
+  'Take a 10-minute walk or stretch before the afternoon dip hits.',
+]
+
+const DEFAULT_QUOTE = {
+  text: 'Momentum beats motivation. Show up for one strong block at a time.',
+  authorOrSource: 'Morning Coach',
 }
 
 function getWeatherConditionIcon(condition: string) {
@@ -172,17 +252,17 @@ export function DashboardView() {
         id: 'energy',
         accent: colors.purple,
         label: 'Energy',
-        value: '85%',
-        detail: 'Feeling great',
-        previewData: 'Peak focus at 10AM after solid sleep.',
+        value: '70% charged',
+        detail: 'Party mode with purpose',
+        previewData: 'Hydrate, ride your peak, and protect your afternoon reset.',
         icon: <Zap size={54} strokeWidth={2.2} />,
-        subtitle: 'Strong baseline energy with a steady focus window.',
+        subtitle: 'Supportive wellness + energy pacing for your morning plan.',
         fields: [
-          { key: 'Focus Window', value: '10:00 AM - 12:30 PM' },
-          { key: 'Sleep', value: '7h 51m quality rest' },
-          { key: 'Recovery', value: 'Hydration and breakfast both on track' },
+          { key: 'Peak Window', value: '10:30 AM - 12:30 PM' },
+          { key: 'Dip Window', value: '2:30 PM - 4:00 PM' },
+          { key: 'Coach Tip', value: 'Start with water before caffeine.' },
         ],
-        actions: ['Start Focus Timer', 'Log Energy Check-In'],
+        actions: ['Start Focus Sprint', 'Take Reset Break'],
       },
     ],
     [],
@@ -220,7 +300,18 @@ export function DashboardView() {
     retry: 1,
     refetchInterval: (query) => {
       const outputs = (query.state.data as { outputs?: unknown[] } | undefined)?.outputs ?? []
-      return outputs.length >= 4 ? false : 1000
+      // We have 4 agent cards (weather, outfit, music, energy). Energy may produce 2 rows
+      // (pre-seed from Node + LLM-generated from Python), so stop polling once we see the
+      // 4 unique agent names all present rather than a fixed row count.
+      const completedAgentNames = new Set(
+        (outputs as Array<{ agentName?: string }>).map((o) => o.agentName).filter(Boolean),
+      )
+      const allAgentsDelivered =
+        completedAgentNames.has('weather') &&
+        completedAgentNames.has('outfit') &&
+        completedAgentNames.has('music') &&
+        completedAgentNames.has('energy')
+      return allAgentsDelivered ? false : 1000
     },
   })
 
@@ -344,7 +435,7 @@ export function DashboardView() {
     [cardDetails, outputsByAgent],
   )
 
-  const completedCount = sessionQuery.data?.outputs?.length ?? 0
+  const completedCount = Object.keys(outputsByAgent).length
   const selectedCard = enrichedCards.find((card) => card.id === selectedCardId) ?? null
   const selectedCardOutput = selectedCard ? outputsByAgent[selectedCard.id] : undefined
   const topMusicTrack = selectedCard?.id === 'music' ? selectedCardOutput?.tracks?.[0] : undefined
@@ -429,6 +520,27 @@ export function DashboardView() {
             value: topArtists.length > 0 ? topArtists.join(', ') : 'Artist data not available yet',
           },
         ],
+      }
+    }
+
+    if (selectedCard.id === 'energy') {
+      const energyOutput = selectedCardOutput as EnergyAgentOutput | undefined
+      const windows = energyOutput?.energyWindows ?? buildClientEnergyWindows()
+
+      return {
+        ...selectedCard,
+        subtitle: energyOutput?.coachSummary ?? selectedCard.previewData,
+        fields: [
+          {
+            key: 'Peak Window',
+            value: `${windows.peakStart} - ${windows.peakEnd}`,
+          },
+          {
+            key: 'Dip Window',
+            value: `${windows.dipStart} - ${windows.dipEnd}`,
+          },
+        ],
+        actions: [],
       }
     }
 
@@ -681,6 +793,9 @@ export function DashboardView() {
                 onLike={() => submitThumbFeedback(enrichedCards[3].id, 'liked')}
                 onDislike={() => submitThumbFeedback(enrichedCards[3].id, 'disliked')}
                 isLoading={!completedAgents.has(enrichedCards[3].id)}
+                energyCurve={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.energyCurve}
+                energyWindows={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.energyWindows ?? null}
+                quoteText={(outputsByAgent['energy'] as EnergyAgentOutput | undefined)?.quote?.text}
               />
             </div>
 
@@ -733,6 +848,11 @@ export function DashboardView() {
                     feedbackState={feedbackStateByAgent[selectedCard.id] ?? null}
                     onLike={() => submitThumbFeedback(selectedCard.id, 'liked')}
                     onDislike={() => submitThumbFeedback(selectedCard.id, 'disliked')}
+                    energyInsights={
+                      selectedCard.id === 'energy'
+                        ? buildEnergyInsights(selectedCardOutput as EnergyAgentOutput | undefined)
+                        : undefined
+                    }
                     onActionClick={(action) => {
                       if (selectedCard.id === 'weather') {
                         if (action === 'View Hourly Forecast') {
