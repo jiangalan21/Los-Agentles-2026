@@ -130,7 +130,7 @@ export function DashboardCard({
             </>
           ) : (
             <>
-              <h3 className="font-display text-5xl font-extrabold leading-[0.95] tracking-[-0.03em]">
+              <h3 className="break-words font-display text-4xl font-extrabold leading-[0.95] tracking-[-0.03em] xl:text-5xl">
                 {value}
               </h3>
               {isOutfitCard ? (

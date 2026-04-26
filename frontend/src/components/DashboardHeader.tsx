@@ -27,11 +27,11 @@ export function DashboardHeader({ userName = 'Alex', userLocation = 'Los Angeles
         {timeText}
       </p>
 
-      <div className="relative z-10 grid grid-cols-[1fr_auto] items-start gap-10">
+      <div className="relative z-10 grid grid-cols-1 items-start gap-6 xl:grid-cols-[1fr_auto] xl:gap-10">
         <div className="space-y-6">
           <Logo size="medium" />
 
-          <nav className="flex flex-wrap items-center gap-7">
+          <nav className="flex flex-wrap items-center gap-x-5 gap-y-3 xl:gap-7">
             {navItems.map((item) => (
               <button
                 key={item}
@@ -44,13 +44,13 @@ export function DashboardHeader({ userName = 'Alex', userLocation = 'Los Angeles
           </nav>
         </div>
 
-        <div className="text-right">
-          <p className="font-body text-lg font-medium text-foreground/75">
+        <div className="min-w-0 text-left xl:text-right">
+          <p className="break-words font-body text-base font-medium text-foreground/75 xl:text-lg">
             {dateText} · {userLocation}
           </p>
           <h1
-            className="font-display font-extrabold leading-[0.92] tracking-[-0.04em] text-foreground"
-            style={{ fontSize: 'clamp(4rem, 8vw, 8rem)' }}
+            className="break-words font-display font-extrabold leading-[0.92] tracking-[-0.04em] text-foreground"
+            style={{ fontSize: 'clamp(2.8rem, 7vw, 7rem)' }}
           >
             {userName}
           </h1>
